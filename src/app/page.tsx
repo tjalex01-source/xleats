@@ -1,14 +1,17 @@
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center px-6 text-center">
-      <div className="mb-6 flex flex-col items-center gap-1">
-        <span className="font-display text-7xl font-extrabold tracking-tight text-brand sm:text-8xl">
-          XLEATS
-        </span>
-        <div className="eyebrow">for food trucks</div>
-      </div>
+      <Image
+        src="/truck-logo.png"
+        alt="XLeats food truck"
+        width={600}
+        height={300}
+        className="mb-2 w-full max-w-lg"
+        priority
+      />
       <h1 className="font-display text-5xl font-extrabold leading-[0.95] sm:text-6xl">
         Tell your regulars<br />exactly where you are.
       </h1>
