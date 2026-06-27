@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+
+body {
+  background:
+    radial-gradient(circle at 1px 1px, rgba(20,17,14,0.04) 1px, transparent 0) 0 0/22px 22px,
+    #FBF7EF;
+  color: #14110E;
+}
+
+/* Menu-board eyebrow: wide-tracked uppercase, the signage voice */
+.eyebrow {
+  font-family: var(--font-archivo), sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  font-size: 0.7rem;
+  color: #8C8579;
+}
+
+/* Perforated edge for the "ticket" cards */
+.ticket-perf {
+  background-image: radial-gradient(circle, #FBF7EF 3px, transparent 3px);
+  background-size: 12px 6px;
+  background-repeat: repeat-x;
+  height: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
