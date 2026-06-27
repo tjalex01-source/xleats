@@ -3,7 +3,12 @@ import Link from 'next/link';
 export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center px-6 text-center">
-      <div className="eyebrow mb-3">XLeats · for food trucks</div>
+      <div className="mb-6 flex flex-col items-center gap-1">
+        <span className="font-display text-7xl font-extrabold tracking-tight text-brand sm:text-8xl">
+          XLEATS
+        </span>
+        <div className="eyebrow">for food trucks</div>
+      </div>
       <h1 className="font-display text-5xl font-extrabold leading-[0.95] sm:text-6xl">
         Tell your regulars<br />exactly where you are.
       </h1>
