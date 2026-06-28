@@ -4,14 +4,16 @@ import Image from 'next/image';
 export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center px-6 text-center">
-      <Image
-        src="/truck-logo.png"
-        alt="XLeats food truck"
-        width={600}
-        height={300}
-        className="mb-2 w-full max-w-lg"
-        priority
-      />
+      <div className="truck-roll mb-2 w-full max-w-2xl">
+        <Image
+          src="/truck-logo.png"
+          alt="XLeats food truck"
+          width={800}
+          height={400}
+          className="w-full"
+          priority
+        />
+      </div>
       <h1 className="font-display text-5xl font-extrabold leading-[0.95] sm:text-6xl">
         Tell your regulars<br />exactly where you are.
       </h1>
