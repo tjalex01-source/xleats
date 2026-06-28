@@ -76,9 +76,12 @@ export default async function Dashboard() {
       </div>
 
       {atFreeLimit ? (
-        <div className="mt-4 rounded-ticket border border-dashed border-edge p-4 text-center text-sm text-muted">
-          Running more than one truck? <span className="font-semibold text-ink">Upgrade to Pro</span> to add trucks,
-          manage them together, and run promos.
+        <div className="mt-4 rounded-ticket border border-dashed border-brand p-4 text-center text-sm">
+          Running more than one truck?{' '}
+          <Link href="/pricing" className="font-bold text-brand underline">
+            See pricing plans
+          </Link>{' '}
+          — Pro unlocks multiple trucks, discount codes, contests, and birthday offers.
         </div>
       ) : (
         <Link href="/dashboard/new-truck"
@@ -86,6 +89,12 @@ export default async function Dashboard() {
           + Add a truck
         </Link>
       )}
+
+      <div className="mt-6 flex justify-center">
+        <Link href="/pricing" className="text-sm text-muted underline hover:text-ink">
+          View pricing & plans
+        </Link>
+      </div>
     </div>
   );
 }
