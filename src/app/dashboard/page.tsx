@@ -5,10 +5,11 @@ import AnnouncementsList from '@/components/AnnouncementsList';
 
 const DOT: Record<LiveStatus, string> = {
   live: 'bg-state-live', scheduled: 'bg-state-scheduled',
-  catering: 'bg-state-catering', off: 'bg-state-off',
+  catering: 'bg-state-catering', off: 'bg-state-off', closed: 'bg-red-600',
 };
 const LABEL: Record<LiveStatus, string> = {
-  live: 'Live now', scheduled: 'Scheduled today', catering: 'Catering', off: 'Closed today',
+  live: 'Live now', scheduled: 'Scheduled today', catering: 'Catering',
+  off: 'Currently Offline', closed: 'Closed Today',
 };
 
 export default async function Dashboard() {

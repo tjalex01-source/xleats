@@ -18,9 +18,9 @@ create extension if not exists pgcrypto;
 -- ----------------------------------------------------------------------------
 -- Enums
 -- ----------------------------------------------------------------------------
-create type account_plan  as enum ('free', 'pro');
+create type account_plan  as enum ('free', 'pro', 'fleet');
 create type member_role   as enum ('owner', 'manager', 'worker');
-create type live_status   as enum ('live', 'scheduled', 'catering', 'off');
+create type live_status   as enum ('live', 'scheduled', 'catering', 'off', 'closed');
 create type discount_type as enum ('percent', 'amount', 'free_item');
 create type contest_type  as enum ('count', 'prediction');
 

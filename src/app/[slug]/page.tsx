@@ -13,6 +13,7 @@ function statusLabel(status: string | undefined) {
     case 'live': return '🟢 Open now';
     case 'scheduled': return '🟡 Scheduled today';
     case 'catering': return '🟣 Catering today';
+    case 'closed': return '🔴 Closed today';
     default: return null;
   }
 }
@@ -142,11 +143,20 @@ function StatusBadge({ status, address, lat, lng, cateringNote, updatedAt }: {
     </div>
   );
 
+  if (status === 'closed') return (
+    <div className="rounded-ticket border border-red-200 bg-red-50 p-4">
+      <div className="flex items-center gap-2">
+        <span className="h-3 w-3 rounded-full bg-red-600" />
+        <span className="font-display font-bold text-red-700">Closed today</span>
+      </div>
+    </div>
+  );
+
   return (
     <div className="rounded-ticket border border-edge bg-white p-4">
       <div className="flex items-center gap-2">
         <span className="h-3 w-3 rounded-full bg-gray-300" />
-        <span className="font-display font-bold text-muted">Closed today</span>
+        <span className="font-display font-bold text-muted">Currently Offline</span>
       </div>
     </div>
   );

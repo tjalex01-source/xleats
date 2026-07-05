@@ -1,4 +1,4 @@
-export type LiveStatus = 'live' | 'scheduled' | 'catering' | 'off';
+export type LiveStatus = 'live' | 'scheduled' | 'catering' | 'off' | 'closed';
 export type AccountPlan = 'free' | 'pro' | 'fleet';
 
 export type Account = {
