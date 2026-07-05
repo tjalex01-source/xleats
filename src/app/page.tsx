@@ -9,7 +9,7 @@ export default function Home() {
         alt="XLeats"
         width={400}
         height={200}
-        className="w-40 sm:w-48"
+        className="w-64 sm:w-80"
         priority
       />
       <div className="truck-roll mb-2 w-full max-w-2xl">
@@ -37,6 +37,9 @@ export default function Home() {
           Log in
         </Link>
       </div>
+      <footer className="mt-16 pb-6 text-xs text-muted">
+        © {new Date().getFullYear()} Xandland Enterprises, LLC
+      </footer>
     </main>
   );
 }
