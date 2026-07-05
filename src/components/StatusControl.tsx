@@ -7,7 +7,7 @@ const STATES: Record<LiveStatus, { label: string; dot: string; bg: string; line:
   live:      { label: 'Live now',        dot: 'bg-state-live',      bg: 'bg-state-live/10',      line: 'border-state-live' },
   scheduled: { label: 'Scheduled today', dot: 'bg-state-scheduled', bg: 'bg-state-scheduled/10', line: 'border-state-scheduled' },
   catering:  { label: 'Catering',        dot: 'bg-state-catering',  bg: 'bg-state-catering/10',  line: 'border-state-catering' },
-  off:       { label: 'Closed today',    dot: 'bg-state-off',       bg: 'bg-black/[0.03]',       line: 'border-edge' },
+  off:       { label: 'Currently Offline', dot: 'bg-state-off',     bg: 'bg-black/[0.03]',       line: 'border-edge' },
 };
 
 function ago(iso: string | null) {
@@ -63,7 +63,7 @@ export default function StatusControl({
     navigator.geolocation.getCurrentPosition(
       (pos) =>
         start(() => setStatus('live', { lat: pos.coords.latitude, lng: pos.coords.longitude })),
-      () => setError('Location blocked. Allow location to confirm where you parked, or set Out Today.'),
+      () => setError('Location blocked. Allow location to confirm where you parked, or set Scheduled today.'),
       { enableHighAccuracy: true, timeout: 10000 }
     );
   }
@@ -90,28 +90,45 @@ export default function StatusControl({
 
       {error && <p className="mt-3 text-sm text-brand">{error}</p>}
 
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <button
-          onClick={goLive}
-          disabled={pending}
-          className="col-span-2 rounded-lg bg-state-live px-4 py-3 font-display font-bold text-white disabled:opacity-60"
-        >
-          {pending ? 'Confirming…' : 'Go live — confirm my spot'}
-        </button>
-        <button
-          onClick={() => start(() => setStatus('scheduled'))}
-          disabled={pending}
-          className="rounded-lg bg-state-scheduled px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
-        >
-          Scheduled today
-        </button>
-        <button
-          onClick={() => start(() => setStatus('off'))}
-          disabled={pending}
-          className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
-        >
-          Closed today
-        </button>
+      <div className="mt-4 space-y-2">
+        {status === 'live' ? (
+          <button
+            onClick={() => start(() => setStatus('off'))}
+            disabled={pending}
+            className="w-full rounded-lg bg-state-off px-4 py-3 font-display font-bold text-white disabled:opacity-60"
+          >
+            Go offline
+          </button>
+        ) : (
+          <button
+            onClick={goLive}
+            disabled={pending}
+            className="w-full rounded-lg bg-state-live px-4 py-3 font-display font-bold text-white disabled:opacity-60"
+          >
+            {pending ? 'Confirming…' : 'Go live — confirm my spot'}
+          </button>
+        )}
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => start(() => setStatus('scheduled'))}
+            disabled={pending}
+            className={`rounded-lg bg-state-scheduled px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 ${
+              status === 'scheduled' || status === 'catering' ? '' : 'col-span-2'
+            }`}
+          >
+            Scheduled today
+          </button>
+          {(status === 'scheduled' || status === 'catering') && (
+            <button
+              onClick={() => start(() => setStatus('off'))}
+              disabled={pending}
+              className="rounded-lg bg-state-off px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              Go offline
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mt-3 rounded-lg border border-edge bg-white p-3">
