@@ -49,6 +49,15 @@ export type MenuPhoto = {
   sort_order: number;
 };
 
+export type SavedLocation = {
+  id: string;
+  truck_id: string;
+  name: string;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+};
+
 export type LiveSession = {
   id: string;
   truck_id: string;

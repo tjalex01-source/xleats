@@ -146,6 +146,9 @@ create table menu_photos (
 );
 create index menu_photos_truck_idx on menu_photos(truck_id);
 
+-- A day (recurring weekday or a specific one-off date) can have MULTIPLE rows
+-- — a morning spot and a different afternoon spot, or a spot plus a catering
+-- block later. Ordering within a day comes from start_time, not uniqueness.
 create table schedules (
   id            uuid primary key default gen_random_uuid(),
   truck_id      uuid not null references trucks(id) on delete cascade,
@@ -158,14 +161,24 @@ create table schedules (
   address       text,
   lat           double precision,
   lng           double precision,
-  is_closed     boolean not null default false,             -- explicit "not operating" for this day
+  is_closed     boolean not null default false,             -- explicit "not operating" for this slot
+  is_catering   boolean not null default false,             -- private event — public view shows "Closed"
   created_at    timestamptz not null default now()
 );
 create index schedules_truck_idx on schedules(truck_id);
--- One recurring entry per weekday per truck (one-off dated entries are unrestricted).
-create unique index schedules_one_recurring_per_day
-  on schedules (truck_id, day_of_week)
-  where recurring = true;
+
+-- Frequently-used spots a vendor can pick from a dropdown instead of
+-- retyping. Truck-scoped, not shared across a Fleet account's trucks.
+create table saved_locations (
+  id         uuid primary key default gen_random_uuid(),
+  truck_id   uuid not null references trucks(id) on delete cascade,
+  name       text not null,
+  address    text,
+  lat        double precision,
+  lng        double precision,
+  created_at timestamptz not null default now()
+);
+create index saved_locations_truck_idx on saved_locations(truck_id);
 
 create table posts (
   id         uuid primary key default gen_random_uuid(),
@@ -394,6 +407,7 @@ alter table menu_items           enable row level security;
 alter table menu_item_trucks     enable row level security;
 alter table menu_photos          enable row level security;
 alter table schedules            enable row level security;
+alter table saved_locations       enable row level security;
 alter table posts                enable row level security;
 alter table follows              enable row level security;
 alter table live_sessions        enable row level security;
@@ -443,6 +457,8 @@ create policy menu_photos_write on menu_photos for all
   using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
 create policy sched_read  on schedules  for select using (true);
 create policy sched_write on schedules  for all using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
+create policy saved_locations_manage on saved_locations for all
+  using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
 create policy posts_read  on posts      for select using (true);
 create policy posts_write on posts      for all using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
 

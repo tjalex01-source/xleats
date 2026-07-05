@@ -252,18 +252,22 @@ export default async function PublicTruckPage({
   const showCateringForm = !isFreePlan && (session?.status === 'catering' || !session);
 
   type ScheduleRow = NonNullable<typeof schedules>[number];
-  const recurringByDay = new Map<number, ScheduleRow>();
-  const oneOffByDate = new Map<string, ScheduleRow>();
+  const byStartTime = (a: ScheduleRow, b: ScheduleRow) => (a.start_time ?? '99').localeCompare(b.start_time ?? '99');
+  const recurringByDay = new Map<number, ScheduleRow[]>();
+  const oneOffByDate = new Map<string, ScheduleRow[]>();
   for (const s of schedules ?? []) {
-    if (s.recurring && s.day_of_week != null) recurringByDay.set(s.day_of_week, s);
-    else if (!s.recurring && s.date) oneOffByDate.set(s.date, s);
+    if (s.recurring && s.day_of_week != null) {
+      recurringByDay.set(s.day_of_week, [...(recurringByDay.get(s.day_of_week) ?? []), s]);
+    } else if (!s.recurring && s.date) {
+      oneOffByDate.set(s.date, [...(oneOffByDate.get(s.date) ?? []), s]);
+    }
   }
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() + i);
     const iso = d.toISOString().slice(0, 10);
-    const entry = oneOffByDate.get(iso) ?? recurringByDay.get(d.getDay());
-    return { iso, label: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }), entry };
+    const entries = (oneOffByDate.get(iso) ?? recurringByDay.get(d.getDay()) ?? []).slice().sort(byStartTime);
+    return { iso, label: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }), entries };
   });
 
   return (
@@ -317,22 +321,30 @@ export default async function PublicTruckPage({
       <section className="mb-6">
         <h2 className="eyebrow mb-3">This week</h2>
         <div className="space-y-2">
-          {weekDays.map(({ iso, label, entry }) => (
+          {weekDays.map(({ iso, label, entries }) => (
             <div key={iso} className="rounded-ticket border border-edge bg-white p-3">
-              <div className="flex items-baseline justify-between">
-                <span className="font-display font-bold">{label}</span>
-                {entry?.is_closed ? (
-                  <span className="text-sm font-semibold text-red-600">Closed</span>
-                ) : entry ? (
-                  <span className="text-sm text-muted">
-                    {entry.start_time?.slice(0, 5)} – {entry.end_time?.slice(0, 5)}
-                  </span>
-                ) : (
-                  <span className="text-sm text-muted">Not posted yet</span>
-                )}
-              </div>
-              {entry && !entry.is_closed && (entry.location_name || entry.address) && (
-                <p className="text-sm text-muted">{entry.location_name ?? entry.address}</p>
+              <div className="font-display font-bold">{label}</div>
+              {entries.length === 0 ? (
+                <span className="text-sm text-muted">Not posted yet</span>
+              ) : (
+                <div className="mt-1 space-y-1.5">
+                  {entries.map((entry) => (
+                    <div key={entry.id} className="flex items-baseline justify-between">
+                      {entry.is_closed || entry.is_catering ? (
+                        <span className="text-sm font-semibold text-red-600">Closed</span>
+                      ) : (
+                        <>
+                          <span className="text-sm text-muted">{entry.location_name ?? entry.address}</span>
+                          {(entry.start_time || entry.end_time) && (
+                            <span className="text-sm text-muted">
+                              {entry.start_time?.slice(0, 5)} – {entry.end_time?.slice(0, 5)}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           ))}
