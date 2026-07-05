@@ -76,28 +76,32 @@ export default async function Dashboard() {
         })}
       </div>
 
-      {atTruckLimit ? (
-        <div className="mt-4 rounded-ticket border border-dashed border-brand p-4 text-center text-sm">
-          Running more than one truck?{' '}
-          <Link href="/pricing" className="font-bold text-brand underline">
-            See pricing plans
-          </Link>{' '}
-          — Fleet lets you manage them all from one account.
-        </div>
-      ) : (
-        <Link href="/dashboard/new-truck"
-          className="mt-4 block rounded-ticket border border-dashed border-edge p-4 text-center font-semibold text-muted hover:border-brand hover:text-ink">
-          + Add a truck
-        </Link>
-      )}
+      <div className="mt-4 space-y-3">
+        {!isPro && (
+          <div className="rounded-ticket border border-dashed border-brand p-4 text-center text-sm">
+            Want discount codes, contests, and birthday offers?{' '}
+            <Link href="/pricing" className="font-bold text-brand underline">
+              See pricing plans
+            </Link>{' '}
+            — Pro unlocks all of that on your truck.
+          </div>
+        )}
 
-      {!atTruckLimit && (
-        <div className="mt-6 flex justify-center">
-          <Link href="/pricing" className="text-sm text-muted underline hover:text-ink">
-            View pricing & plans
+        {atTruckLimit ? (
+          <div className="rounded-ticket border border-dashed border-brand p-4 text-center text-sm">
+            Running more than one truck?{' '}
+            <Link href="/pricing" className="font-bold text-brand underline">
+              See pricing plans
+            </Link>{' '}
+            — Fleet lets you manage them all from one account.
+          </div>
+        ) : (
+          <Link href="/dashboard/new-truck"
+            className="block rounded-ticket border border-dashed border-edge p-4 text-center font-semibold text-muted hover:border-brand hover:text-ink">
+            + Add a truck
           </Link>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
