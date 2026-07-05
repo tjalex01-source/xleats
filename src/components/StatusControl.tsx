@@ -4,10 +4,10 @@ import { useState, useTransition } from 'react';
 import type { LiveSession, LiveStatus } from '@/lib/types';
 
 const STATES: Record<LiveStatus, { label: string; dot: string; bg: string; line: string }> = {
-  live:      { label: 'Live now',      dot: 'bg-state-live',      bg: 'bg-state-live/10',      line: 'border-state-live' },
-  scheduled: { label: 'Out today',     dot: 'bg-state-scheduled', bg: 'bg-state-scheduled/10', line: 'border-state-scheduled' },
-  catering:  { label: 'Catering',      dot: 'bg-state-catering',  bg: 'bg-state-catering/10',  line: 'border-state-catering' },
-  off:       { label: 'Not out',       dot: 'bg-state-off',       bg: 'bg-black/[0.03]',       line: 'border-edge' },
+  live:      { label: 'Live now',        dot: 'bg-state-live',      bg: 'bg-state-live/10',      line: 'border-state-live' },
+  scheduled: { label: 'Scheduled today', dot: 'bg-state-scheduled', bg: 'bg-state-scheduled/10', line: 'border-state-scheduled' },
+  catering:  { label: 'Catering',        dot: 'bg-state-catering',  bg: 'bg-state-catering/10',  line: 'border-state-catering' },
+  off:       { label: 'Closed today',    dot: 'bg-state-off',       bg: 'bg-black/[0.03]',       line: 'border-edge' },
 };
 
 function ago(iso: string | null) {
@@ -101,16 +101,16 @@ export default function StatusControl({
         <button
           onClick={() => start(() => setStatus('scheduled'))}
           disabled={pending}
-          className="rounded-lg border border-edge bg-white px-3 py-2 text-sm font-semibold"
+          className="rounded-lg bg-state-scheduled px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
         >
-          Out today
+          Scheduled today
         </button>
         <button
           onClick={() => start(() => setStatus('off'))}
           disabled={pending}
-          className="rounded-lg border border-edge bg-white px-3 py-2 text-sm font-semibold"
+          className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
         >
-          Go offline
+          Closed today
         </button>
       </div>
 

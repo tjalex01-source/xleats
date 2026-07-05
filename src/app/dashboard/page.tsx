@@ -8,7 +8,7 @@ const DOT: Record<LiveStatus, string> = {
   catering: 'bg-state-catering', off: 'bg-state-off',
 };
 const LABEL: Record<LiveStatus, string> = {
-  live: 'Live now', scheduled: 'Out today', catering: 'Catering', off: 'Not out',
+  live: 'Live now', scheduled: 'Scheduled today', catering: 'Catering', off: 'Closed today',
 };
 
 export default async function Dashboard() {

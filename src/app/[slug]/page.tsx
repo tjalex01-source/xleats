@@ -11,7 +11,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://xleats.com';
 function statusLabel(status: string | undefined) {
   switch (status) {
     case 'live': return '🟢 Open now';
-    case 'scheduled': return '🟡 Out today';
+    case 'scheduled': return '🟡 Scheduled today';
     case 'catering': return '🟣 Catering today';
     default: return null;
   }
@@ -117,7 +117,7 @@ function StatusBadge({ status, address, lat, lng, cateringNote, updatedAt }: {
     <div className="rounded-ticket border border-amber-200 bg-amber-50 p-4">
       <div className="flex items-center gap-2">
         <span className="h-3 w-3 rounded-full bg-amber-400" />
-        <span className="font-display font-bold text-amber-700">Out today — not open yet</span>
+        <span className="font-display font-bold text-amber-700">Scheduled today — not open yet</span>
       </div>
       {address && (
         <p className="mt-1 text-sm text-amber-700">
@@ -146,7 +146,7 @@ function StatusBadge({ status, address, lat, lng, cateringNote, updatedAt }: {
     <div className="rounded-ticket border border-edge bg-white p-4">
       <div className="flex items-center gap-2">
         <span className="h-3 w-3 rounded-full bg-gray-300" />
-        <span className="font-display font-bold text-muted">Not out today</span>
+        <span className="font-display font-bold text-muted">Closed today</span>
       </div>
     </div>
   );
