@@ -33,3 +33,14 @@ export function createAdminClient() {
     { auth: { persistSession: false } }
   );
 }
+
+// Anon client for public, logged-out reads (e.g. the /[slug] truck page).
+// Does NOT touch cookies(), so pages using it stay eligible for ISR/`revalidate`
+// instead of being forced into fully dynamic rendering. Still respects RLS.
+export function createPublicClient() {
+  return createSb(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false } }
+  );
+}

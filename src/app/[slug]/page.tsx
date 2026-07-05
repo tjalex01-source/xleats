@@ -1,11 +1,87 @@
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
-import { createClient } from '@/lib/supabase/server';
+import type { Metadata } from 'next';
+import { createPublicClient } from '@/lib/supabase/server';
 import CateringForm from './catering-form';
 
-function StatusBadge({ status, address, cateringNote, updatedAt }: {
+export const revalidate = 60;
+
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://xleats.com';
+
+function statusLabel(status: string | undefined) {
+  switch (status) {
+    case 'live': return '🟢 Open now';
+    case 'scheduled': return '🟡 Out today';
+    case 'catering': return '🟣 Catering today';
+    default: return null;
+  }
+}
+
+function directionsUrl(address: string | null, lat: number | null, lng: number | null) {
+  if (lat != null && lng != null) {
+    return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  }
+  if (address) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+  }
+  return null;
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const supabase = createPublicClient();
+
+  const { data: truck } = await supabase
+    .from('trucks')
+    .select('id, name, cuisine, bio, logo_url, banner_url')
+    .eq('slug', slug)
+    .maybeSingle();
+
+  if (!truck) return { title: 'Truck not found — XLeats' };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: session } = await supabase
+    .from('live_sessions')
+    .select('status')
+    .eq('truck_id', truck.id)
+    .eq('date', today)
+    .maybeSingle();
+
+  const label = statusLabel(session?.status);
+  const title = label ? `${truck.name} — ${label} | XLeats` : `${truck.name} | XLeats`;
+  const description =
+    truck.bio ?? `See ${truck.name}'s live status, menu, and schedule on XLeats.`;
+  const image = truck.banner_url ?? truck.logo_url ?? `${SITE_URL}/truck-logo.png`;
+  const url = `${SITE_URL}/${slug}`;
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      url,
+      type: 'website',
+      images: [{ url: image, width: 1200, height: 630, alt: truck.name }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      images: [image],
+    },
+  };
+}
+
+function StatusBadge({ status, address, lat, lng, cateringNote, updatedAt }: {
   status: string;
   address: string | null;
+  lat: number | null;
+  lng: number | null;
   cateringNote: string | null;
   updatedAt: string;
 }) {
@@ -15,6 +91,7 @@ function StatusBadge({ status, address, cateringNote, updatedAt }: {
     if (mins < 60) return `${mins} min ago`;
     return `${Math.floor(mins / 60)}h ago`;
   })();
+  const directions = directionsUrl(address, lat, lng);
 
   if (status === 'live') return (
     <div className="rounded-ticket border border-green-200 bg-green-50 p-4">
@@ -23,7 +100,16 @@ function StatusBadge({ status, address, cateringNote, updatedAt }: {
         <span className="font-display font-bold text-green-700">Open now</span>
         <span className="ml-auto text-xs text-green-600">confirmed {freshness}</span>
       </div>
-      {address && <p className="mt-1 text-sm text-green-700">{address}</p>}
+      {address && (
+        <p className="mt-1 text-sm text-green-700">
+          {address}
+          {directions && (
+            <a href={directions} target="_blank" rel="noopener noreferrer" className="ml-2 underline">
+              Get directions
+            </a>
+          )}
+        </p>
+      )}
     </div>
   );
 
@@ -33,7 +119,16 @@ function StatusBadge({ status, address, cateringNote, updatedAt }: {
         <span className="h-3 w-3 rounded-full bg-amber-400" />
         <span className="font-display font-bold text-amber-700">Out today — not open yet</span>
       </div>
-      {address && <p className="mt-1 text-sm text-amber-700">Heading to {address}</p>}
+      {address && (
+        <p className="mt-1 text-sm text-amber-700">
+          Heading to {address}
+          {directions && (
+            <a href={directions} target="_blank" rel="noopener noreferrer" className="ml-2 underline">
+              Get directions
+            </a>
+          )}
+        </p>
+      )}
     </div>
   );
 
@@ -63,7 +158,7 @@ export default async function PublicTruckPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const supabase = await createClient();
+  const supabase = createPublicClient();
 
   const { data: truck } = await supabase
     .from('trucks')
@@ -156,15 +251,21 @@ export default async function PublicTruckPage({
         <StatusBadge
           status={session?.status ?? 'off'}
           address={session?.confirmed_address ?? null}
+          lat={session?.confirmed_lat ?? null}
+          lng={session?.confirmed_lng ?? null}
           cateringNote={session?.catering_note ?? null}
           updatedAt={session?.started_at ?? new Date().toISOString()}
         />
       </div>
 
       {/* Schedule */}
-      {schedules && schedules.length > 0 && (
-        <section className="mb-6">
-          <h2 className="eyebrow mb-3">Upcoming spots</h2>
+      <section className="mb-6">
+        <h2 className="eyebrow mb-3">Upcoming spots</h2>
+        {!schedules || schedules.length === 0 ? (
+          <p className="rounded-ticket border border-edge bg-white p-3 text-sm text-muted">
+            No upcoming stops posted yet — check back soon.
+          </p>
+        ) : (
           <div className="space-y-2">
             {schedules.map((s) => (
               <div key={s.id} className="rounded-ticket border border-edge bg-white p-3">
@@ -188,13 +289,33 @@ export default async function PublicTruckPage({
               </div>
             ))}
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
       {/* Posts */}
-      {posts && posts.length > 0 && (
-        <section className="mb-6">
-          <h2 className="eyebrow mb-3">Latest</h2>
+      <section className="mb-6">
+        <h2 className="eyebrow mb-3">Latest</h2>
+        {!posts || posts.length === 0 ? (
+          <p className="rounded-ticket border border-edge bg-white p-3 text-sm text-muted">
+            No updates yet
+            {truck.instagram ? (
+              <>
+                {' — follow '}
+                <a
+                  href={`https://instagram.com/${truck.instagram.replace('@', '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand underline"
+                >
+                  @{truck.instagram.replace('@', '')}
+                </a>
+                {' for the latest.'}
+              </>
+            ) : (
+              ' — check back soon.'
+            )}
+          </p>
+        ) : (
           <div className="space-y-3">
             {posts.map((post) => (
               <div key={post.id} className="rounded-ticket border border-edge bg-white p-4">
@@ -216,14 +337,18 @@ export default async function PublicTruckPage({
               </div>
             ))}
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
       {/* Menu */}
-      {Object.keys(menuByCategory).length > 0 && (
-        <section className="mb-6">
-          <h2 className="eyebrow mb-3">Menu</h2>
-          {Object.entries(menuByCategory).map(([cat, items]) => (
+      <section className="mb-6">
+        <h2 className="eyebrow mb-3">Menu</h2>
+        {Object.keys(menuByCategory).length === 0 ? (
+          <p className="rounded-ticket border border-edge bg-white p-3 text-sm text-muted">
+            Menu coming soon.
+          </p>
+        ) : (
+          Object.entries(menuByCategory).map(([cat, items]) => (
             <div key={cat} className="mb-4">
               <h3 className="mb-2 font-display font-bold">{cat}</h3>
               <div className="space-y-2">
@@ -244,9 +369,9 @@ export default async function PublicTruckPage({
                 ))}
               </div>
             </div>
-          ))}
-        </section>
-      )}
+          ))
+        )}
+      </section>
 
       {/* Catering CTA */}
       {showCateringForm && (
@@ -260,6 +385,13 @@ export default async function PublicTruckPage({
           <CateringForm truckId={truck.id} truckName={truck.name} />
         </section>
       )}
+
+      {/* Footer */}
+      <footer className="mt-10 border-t border-edge pt-4 text-center text-xs text-muted">
+        <a href={SITE_URL} className="underline">
+          Powered by XLeats
+        </a>
+      </footer>
     </div>
   );
 }
