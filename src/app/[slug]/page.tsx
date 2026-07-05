@@ -179,7 +179,6 @@ export default async function PublicTruckPage({
   if (!truck) notFound();
 
   const today = new Date().toISOString().slice(0, 10);
-  const todayDow = new Date().getDay();
 
   // accounts has no public-read RLS policy, so the suspension check needs the
   // service-role client — this never reaches the browser, it only decides
@@ -207,10 +206,7 @@ export default async function PublicTruckPage({
       supabase
         .from('schedules')
         .select('*')
-        .eq('truck_id', truck.id)
-        .or(`date.gte.${today},and(recurring.eq.true,day_of_week.eq.${todayDow})`)
-        .order('date', { ascending: true })
-        .limit(7),
+        .eq('truck_id', truck.id),
       supabase
         .from('posts')
         .select('*')
@@ -230,6 +226,21 @@ export default async function PublicTruckPage({
   }, {});
 
   const showCateringForm = session?.status === 'catering' || !session;
+
+  type ScheduleRow = NonNullable<typeof schedules>[number];
+  const recurringByDay = new Map<number, ScheduleRow>();
+  const oneOffByDate = new Map<string, ScheduleRow>();
+  for (const s of schedules ?? []) {
+    if (s.recurring && s.day_of_week != null) recurringByDay.set(s.day_of_week, s);
+    else if (!s.recurring && s.date) oneOffByDate.set(s.date, s);
+  }
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    const iso = d.toISOString().slice(0, 10);
+    const entry = oneOffByDate.get(iso) ?? recurringByDay.get(d.getDay());
+    return { iso, label: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }), entry };
+  });
 
   return (
     <div className="mx-auto max-w-xl px-4 py-8">
@@ -280,36 +291,28 @@ export default async function PublicTruckPage({
 
       {/* Schedule */}
       <section className="mb-6">
-        <h2 className="eyebrow mb-3">Upcoming spots</h2>
-        {!schedules || schedules.length === 0 ? (
-          <p className="rounded-ticket border border-edge bg-white p-3 text-sm text-muted">
-            No upcoming stops posted yet — check back soon.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {schedules.map((s) => (
-              <div key={s.id} className="rounded-ticket border border-edge bg-white p-3">
-                <div className="flex items-baseline justify-between">
-                  <span className="font-display font-bold">
-                    {s.location_name ?? s.address ?? 'TBD'}
-                  </span>
+        <h2 className="eyebrow mb-3">This week</h2>
+        <div className="space-y-2">
+          {weekDays.map(({ iso, label, entry }) => (
+            <div key={iso} className="rounded-ticket border border-edge bg-white p-3">
+              <div className="flex items-baseline justify-between">
+                <span className="font-display font-bold">{label}</span>
+                {entry?.is_closed ? (
+                  <span className="text-sm font-semibold text-red-600">Closed</span>
+                ) : entry ? (
                   <span className="text-sm text-muted">
-                    {s.date
-                      ? new Date(s.date + 'T00:00:00').toLocaleDateString('en-US', {
-                          weekday: 'short', month: 'short', day: 'numeric',
-                        })
-                      : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][s.day_of_week ?? 0] + 's'}
+                    {entry.start_time?.slice(0, 5)} – {entry.end_time?.slice(0, 5)}
                   </span>
-                </div>
-                {(s.start_time || s.end_time) && (
-                  <p className="text-sm text-muted">
-                    {s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)}
-                  </p>
+                ) : (
+                  <span className="text-sm text-muted">Not posted yet</span>
                 )}
               </div>
-            ))}
-          </div>
-        )}
+              {entry && !entry.is_closed && (entry.location_name || entry.address) && (
+                <p className="text-sm text-muted">{entry.location_name ?? entry.address}</p>
+              )}
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* Posts */}

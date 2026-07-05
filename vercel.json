@@ -1,7 +1,9 @@
 {
   "crons": [
-    { "path": "/api/cron/expire",      "schedule": "*/15 * * * *" },
-    { "path": "/api/cron/birthdays",   "schedule": "0 13 * * *" },
-    { "path": "/api/cron/plan-expire", "schedule": "0 6 * * *" }
+    { "path": "/api/cron/expire",          "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/birthdays",       "schedule": "0 13 * * *" },
+    { "path": "/api/cron/plan-expire",     "schedule": "0 6 * * *" },
+    { "path": "/api/cron/seed-status",     "schedule": "0 8 * * *" },
+    { "path": "/api/cron/weekly-reminder", "schedule": "0 13 * * 1" }
   ]
 }

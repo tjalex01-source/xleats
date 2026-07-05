@@ -132,9 +132,14 @@ create table schedules (
   address       text,
   lat           double precision,
   lng           double precision,
+  is_closed     boolean not null default false,             -- explicit "not operating" for this day
   created_at    timestamptz not null default now()
 );
 create index schedules_truck_idx on schedules(truck_id);
+-- One recurring entry per weekday per truck (one-off dated entries are unrestricted).
+create unique index schedules_one_recurring_per_day
+  on schedules (truck_id, day_of_week)
+  where recurring = true;
 
 create table posts (
   id         uuid primary key default gen_random_uuid(),
