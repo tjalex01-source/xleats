@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import type { Metadata } from 'next';
 import { createPublicClient, createAdminClient } from '@/lib/supabase/server';
+import { formatTime12 } from '@/lib/format';
 import CateringForm from './catering-form';
 
 export const revalidate = 60;
@@ -337,7 +338,7 @@ export default async function PublicTruckPage({
                           <span className="text-sm text-muted">{entry.location_name ?? entry.address}</span>
                           {(entry.start_time || entry.end_time) && (
                             <span className="text-sm text-muted">
-                              {entry.start_time?.slice(0, 5)} – {entry.end_time?.slice(0, 5)}
+                              {formatTime12(entry.start_time)} – {formatTime12(entry.end_time)}
                             </span>
                           )}
                         </>

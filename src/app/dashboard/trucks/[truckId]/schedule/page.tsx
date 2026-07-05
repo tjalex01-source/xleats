@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import type { SavedLocation } from '@/lib/types';
+import { formatTime12 } from '@/lib/format';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -189,7 +190,7 @@ export default function Schedule() {
                             <div className="font-semibold">{e.location_name}</div>
                             {e.address && <div className="text-xs text-muted">{e.address}</div>}
                             {(e.start_time || e.end_time) && (
-                              <div className="text-xs text-muted">{e.start_time?.slice(0, 5)}–{e.end_time?.slice(0, 5)}</div>
+                              <div className="text-xs text-muted">{formatTime12(e.start_time)}–{formatTime12(e.end_time)}</div>
                             )}
                           </>
                         )}
