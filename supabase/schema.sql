@@ -106,19 +106,44 @@ create table truck_members (
 -- ----------------------------------------------------------------------------
 -- menu_items / schedules / posts
 -- ----------------------------------------------------------------------------
+-- menu_items belongs to an account, not a single truck — applies_to_all_trucks
+-- (default) shows it on every truck under that account, including ones added
+-- later; set it false and use menu_item_trucks to restrict to a subset. This
+-- is what lets a Fleet vendor edit one item and have it sync everywhere,
+-- since it's the same row rather than a copy per truck.
 create table menu_items (
-  id           uuid primary key default gen_random_uuid(),
-  truck_id     uuid not null references trucks(id) on delete cascade,
-  name         text not null,
-  description  text,
-  price        numeric(8,2),
-  photo_url    text,
-  category     text,
-  sort_order   int not null default 0,
-  is_available boolean not null default true,
-  created_at   timestamptz not null default now()
+  id                     uuid primary key default gen_random_uuid(),
+  account_id             uuid not null references accounts(id) on delete cascade,
+  name                   text not null,
+  description            text,
+  price                  numeric(8,2),
+  photo_url              text,
+  category               text,
+  sort_order             int not null default 0,
+  is_available           boolean not null default true,
+  applies_to_all_trucks  boolean not null default true,
+  is_new                 boolean not null default false,
+  is_catering            boolean not null default false,  -- Pro/Fleet-only catering menu
+  created_at             timestamptz not null default now()
 );
-create index menu_items_truck_idx on menu_items(truck_id);
+create index menu_items_account_idx on menu_items(account_id);
+
+create table menu_item_trucks (
+  menu_item_id uuid not null references menu_items(id) on delete cascade,
+  truck_id     uuid not null references trucks(id) on delete cascade,
+  primary key (menu_item_id, truck_id)
+);
+
+-- Vendor-uploaded whole-menu photos, for trucks that prefer a photo of their
+-- physical menu board over itemized entry. Truck-scoped (not account-synced).
+create table menu_photos (
+  id         uuid primary key default gen_random_uuid(),
+  truck_id   uuid not null references trucks(id) on delete cascade,
+  image_url  text not null,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now()
+);
+create index menu_photos_truck_idx on menu_photos(truck_id);
 
 create table schedules (
   id            uuid primary key default gen_random_uuid(),
@@ -297,6 +322,19 @@ returns boolean language sql security definer stable set search_path = public as
   );
 $$;
 
+-- Account-level equivalent, for account-scoped tables like menu_items —
+-- managing any one truck in the account is enough to manage its shared menu.
+create or replace function owns_or_manages_account(p_account uuid)
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (
+    select 1 from accounts a where a.id = p_account and a.owner_id = auth.uid()
+  ) or exists (
+    select 1 from truck_members m
+    join trucks t on t.id = m.truck_id
+    where t.account_id = p_account and m.user_id = auth.uid() and m.role in ('owner','manager')
+  );
+$$;
+
 create or replace function can_post_live(p_truck uuid)
 returns boolean language sql security definer stable set search_path = public as $$
   select owns_or_manages_truck(p_truck) or exists (
@@ -352,6 +390,8 @@ alter table accounts             enable row level security;
 alter table trucks               enable row level security;
 alter table truck_members        enable row level security;
 alter table menu_items           enable row level security;
+alter table menu_item_trucks     enable row level security;
+alter table menu_photos          enable row level security;
 alter table schedules            enable row level security;
 alter table posts                enable row level security;
 alter table follows              enable row level security;
@@ -389,7 +429,17 @@ create policy members_write on truck_members for all
 
 -- menu / schedules / posts: public read, manager write
 create policy menu_read   on menu_items for select using (true);
-create policy menu_write  on menu_items for all using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
+create policy menu_write  on menu_items for all
+  using (owns_or_manages_account(account_id)) with check (owns_or_manages_account(account_id));
+
+create policy menu_item_trucks_read  on menu_item_trucks for select using (true);
+create policy menu_item_trucks_write on menu_item_trucks for all
+  using (owns_or_manages_account((select account_id from menu_items where id = menu_item_id)))
+  with check (owns_or_manages_account((select account_id from menu_items where id = menu_item_id)));
+
+create policy menu_photos_read  on menu_photos for select using (true);
+create policy menu_photos_write on menu_photos for all
+  using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
 create policy sched_read  on schedules  for select using (true);
 create policy sched_write on schedules  for all using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
 create policy posts_read  on posts      for select using (true);
@@ -431,10 +481,23 @@ create policy notif_self_read   on notifications for select using (user_id = aut
 create policy notif_self_update on notifications for update using (user_id = auth.uid());
 
 -- =============================================================================
--- Storage buckets (run, then set policies in the dashboard or via SQL)
+-- Storage buckets
 -- =============================================================================
 insert into storage.buckets (id, name, public) values
-  ('logos',  'logos',  true),
-  ('menu',   'menu',   true),
-  ('posts',  'posts',  true)
+  ('logos',       'logos',       true),
+  ('menu',        'menu',        true),  -- item photos, path: {account_id}/...
+  ('menu-photos', 'menu-photos', true),  -- whole-menu photos, path: {truck_id}/...
+  ('posts',       'posts',       true)
 on conflict (id) do nothing;
+
+create policy menu_bucket_read on storage.objects for select
+  using (bucket_id = 'menu');
+create policy menu_bucket_write on storage.objects for all
+  using (bucket_id = 'menu' and owns_or_manages_account(((storage.foldername(name))[1])::uuid))
+  with check (bucket_id = 'menu' and owns_or_manages_account(((storage.foldername(name))[1])::uuid));
+
+create policy menu_photos_bucket_read on storage.objects for select
+  using (bucket_id = 'menu-photos');
+create policy menu_photos_bucket_write on storage.objects for all
+  using (bucket_id = 'menu-photos' and owns_or_manages_truck(((storage.foldername(name))[1])::uuid))
+  with check (bucket_id = 'menu-photos' and owns_or_manages_truck(((storage.foldername(name))[1])::uuid));

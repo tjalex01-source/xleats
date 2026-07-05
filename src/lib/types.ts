@@ -28,7 +28,7 @@ export type Truck = {
 
 export type MenuItem = {
   id: string;
-  truck_id: string;
+  account_id: string;
   name: string;
   description: string | null;
   price: number | null;
@@ -36,6 +36,16 @@ export type MenuItem = {
   category: string | null;
   sort_order: number;
   is_available: boolean;
+  applies_to_all_trucks: boolean;
+  is_new: boolean;
+  is_catering: boolean;
+};
+
+export type MenuPhoto = {
+  id: string;
+  truck_id: string;
+  image_url: string;
+  sort_order: number;
 };
 
 export type LiveSession = {

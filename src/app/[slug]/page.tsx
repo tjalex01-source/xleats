@@ -183,11 +183,11 @@ export default async function PublicTruckPage({
   // accounts has no public-read RLS policy, so the suspension check needs the
   // service-role client — this never reaches the browser, it only decides
   // whether the rest of the page renders.
-  const [{ data: accountRow }, { data: session }, { data: menuItems }, { data: schedules }, { data: posts }] =
+  const [{ data: accountRow }, { data: session }, { data: allMenuItems }, { data: schedules }, { data: posts }, { data: menuPhotos }] =
     await Promise.all([
       createAdminClient()
         .from('accounts')
-        .select('suspended')
+        .select('suspended, plan')
         .eq('id', truck.account_id)
         .maybeSingle(),
       supabase
@@ -199,7 +199,7 @@ export default async function PublicTruckPage({
       supabase
         .from('menu_items')
         .select('*')
-        .eq('truck_id', truck.id)
+        .eq('account_id', truck.account_id)
         .eq('is_available', true)
         .order('category')
         .order('sort_order'),
@@ -213,19 +213,43 @@ export default async function PublicTruckPage({
         .eq('truck_id', truck.id)
         .order('created_at', { ascending: false })
         .limit(5),
+      supabase
+        .from('menu_photos')
+        .select('*')
+        .eq('truck_id', truck.id)
+        .order('sort_order'),
     ]);
 
   if (accountRow?.suspended) notFound();
+  const isFreePlan = (accountRow?.plan ?? 'free') === 'free';
 
-  type MenuRow = NonNullable<typeof menuItems>[number];
-  const menuByCategory = (menuItems ?? []).reduce<Record<string, MenuRow[]>>((acc, item) => {
+  // menu_items are account-scoped and may apply to all trucks or a specific
+  // subset — resolve which ones actually show on THIS truck.
+  const scopedItemIds = (allMenuItems ?? []).filter((i) => !i.applies_to_all_trucks).map((i) => i.id);
+  let assignedTruckIds = new Set<string>();
+  if (scopedItemIds.length > 0) {
+    const { data: assignments } = await supabase
+      .from('menu_item_trucks')
+      .select('menu_item_id')
+      .eq('truck_id', truck.id)
+      .in('menu_item_id', scopedItemIds);
+    assignedTruckIds = new Set((assignments ?? []).map((a) => a.menu_item_id));
+  }
+  const visibleMenuItems = (allMenuItems ?? []).filter(
+    (i) => i.applies_to_all_trucks || assignedTruckIds.has(i.id)
+  );
+  const menuItems = visibleMenuItems.filter((i) => !i.is_catering);
+  const cateringMenuItems = isFreePlan ? [] : visibleMenuItems.filter((i) => i.is_catering);
+
+  type MenuRow = (typeof menuItems)[number];
+  const menuByCategory = menuItems.reduce<Record<string, MenuRow[]>>((acc, item) => {
     const cat = item.category ?? 'Other';
     if (!acc[cat]) acc[cat] = [];
     acc[cat].push(item);
     return acc;
   }, {});
 
-  const showCateringForm = session?.status === 'catering' || !session;
+  const showCateringForm = !isFreePlan && (session?.status === 'catering' || !session);
 
   type ScheduleRow = NonNullable<typeof schedules>[number];
   const recurringByDay = new Map<number, ScheduleRow>();
@@ -366,7 +390,7 @@ export default async function PublicTruckPage({
       {/* Menu */}
       <section className="mb-6">
         <h2 className="eyebrow mb-3">Menu</h2>
-        {Object.keys(menuByCategory).length === 0 ? (
+        {Object.keys(menuByCategory).length === 0 && (menuPhotos ?? []).length === 0 ? (
           <p className="rounded-ticket border border-edge bg-white p-3 text-sm text-muted">
             Menu coming soon.
           </p>
@@ -376,25 +400,68 @@ export default async function PublicTruckPage({
               <h3 className="mb-2 font-display font-bold">{cat}</h3>
               <div className="space-y-2">
                 {items.map((item) => (
-                  <div key={item.id} className="flex justify-between rounded-ticket border border-edge bg-white p-3">
-                    <div>
-                      <p className="font-bold">{item.name}</p>
-                      {item.description && (
-                        <p className="text-sm text-muted">{item.description}</p>
+                  <div key={item.id} className="rounded-ticket border border-edge bg-white p-3">
+                    {item.photo_url && (
+                      <Image src={item.photo_url} alt="" width={560} height={280}
+                        className="mb-2 w-full rounded-lg object-cover" style={{ maxHeight: 160 }} />
+                    )}
+                    <div className="flex justify-between">
+                      <div>
+                        <p className="font-bold">
+                          {item.name}
+                          {item.is_new && (
+                            <span className="ml-2 rounded-full bg-brand px-2 py-0.5 text-xs font-bold text-white">
+                              NEW ITEM
+                            </span>
+                          )}
+                        </p>
+                        {item.description && (
+                          <p className="text-sm text-muted">{item.description}</p>
+                        )}
+                      </div>
+                      {item.price != null && (
+                        <span className="ml-4 shrink-0 font-display font-bold text-brand">
+                          ${Number(item.price).toFixed(2)}
+                        </span>
                       )}
                     </div>
-                    {item.price != null && (
-                      <span className="ml-4 shrink-0 font-display font-bold text-brand">
-                        ${Number(item.price).toFixed(2)}
-                      </span>
-                    )}
                   </div>
                 ))}
               </div>
             </div>
           ))
         )}
+        {(menuPhotos ?? []).length > 0 && (
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {menuPhotos!.map((p) => (
+              <Image key={p.id} src={p.image_url} alt="Menu" width={400} height={500}
+                className="rounded-ticket border border-edge object-cover" />
+            ))}
+          </div>
+        )}
       </section>
+
+      {/* Catering menu (Pro/Fleet only) */}
+      {cateringMenuItems.length > 0 && (
+        <section className="mb-6">
+          <h2 className="eyebrow mb-3">Catering menu</h2>
+          <div className="space-y-2">
+            {cateringMenuItems.map((item) => (
+              <div key={item.id} className="flex justify-between rounded-ticket border border-purple-200 bg-purple-50 p-3">
+                <div>
+                  <p className="font-bold">{item.name}</p>
+                  {item.description && <p className="text-sm text-purple-700">{item.description}</p>}
+                </div>
+                {item.price != null && (
+                  <span className="ml-4 shrink-0 font-display font-bold text-brand">
+                    ${Number(item.price).toFixed(2)}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Catering CTA */}
       {showCateringForm && (
