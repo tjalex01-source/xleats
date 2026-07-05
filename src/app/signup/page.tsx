@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import OAuthButtons from '@/components/OAuthButtons';
 
 function EyeIcon({ open }: { open: boolean }) {
   return open ? (
@@ -52,7 +53,10 @@ export default function Signup() {
       <h1 className="font-display text-3xl font-extrabold">Start your truck</h1>
       <p className="mt-1 text-sm text-muted">Free to set up. Add a paid plan later for more features.</p>
 
-      <div className="mt-6 space-y-3">
+      <div className="mt-6">
+        <OAuthButtons />
+      </div>
+      <div className="space-y-3">
         <input className={inputCls} placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} />
         <input className={inputCls} type="email" placeholder="Email address" value={email} onChange={(e) => setEmail(e.target.value)} />
         <div className="relative">

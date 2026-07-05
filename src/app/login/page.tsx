@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import OAuthButtons from '@/components/OAuthButtons';
 
 function EyeIcon({ open }: { open: boolean }) {
   return open ? (
@@ -37,7 +38,10 @@ export default function Login() {
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6">
       <Link href="/" className="eyebrow mb-6">← XLeats</Link>
       <h1 className="font-display text-3xl font-extrabold">Log in</h1>
-      <div className="mt-6 space-y-3">
+      <div className="mt-6">
+        <OAuthButtons />
+      </div>
+      <div className="space-y-3">
         <input className="w-full rounded-lg border border-edge px-3 py-2.5 outline-none focus:border-brand"
           type="email" placeholder="you@truck.com" value={email} onChange={(e) => setEmail(e.target.value)} />
         <div className="relative">
