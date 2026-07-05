@@ -23,6 +23,7 @@ export type Truck = {
   logo_url: string | null;
   banner_url: string | null;
   instagram: string | null;
+  order_url: string | null;
   service_radius_miles: number;
 };
 

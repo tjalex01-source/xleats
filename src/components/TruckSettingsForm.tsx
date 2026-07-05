@@ -16,6 +16,7 @@ export default function TruckSettingsForm({ truck }: { truck: Truck }) {
   const [logoUrl, setLogoUrl] = useState(truck.logo_url ?? '');
   const [bannerUrl, setBannerUrl] = useState(truck.banner_url ?? '');
   const [instagram, setInstagram] = useState(truck.instagram ?? '');
+  const [orderUrl, setOrderUrl] = useState(truck.order_url ?? '');
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -27,6 +28,10 @@ export default function TruckSettingsForm({ truck }: { truck: Truck }) {
     const cleanSlug = slugify(slug);
     if (!cleanSlug) { setError('Public URL cannot be empty.'); setBusy(false); return; }
 
+    const cleanOrderUrl = orderUrl.trim()
+      ? (orderUrl.trim().startsWith('http') ? orderUrl.trim() : `https://${orderUrl.trim()}`)
+      : null;
+
     const { error } = await createClient()
       .from('trucks')
       .update({
@@ -37,6 +42,7 @@ export default function TruckSettingsForm({ truck }: { truck: Truck }) {
         logo_url: logoUrl || null,
         banner_url: bannerUrl || null,
         instagram: instagram || null,
+        order_url: cleanOrderUrl,
       })
       .eq('id', truck.id);
 
@@ -46,6 +52,7 @@ export default function TruckSettingsForm({ truck }: { truck: Truck }) {
       return;
     }
     setSlug(cleanSlug);
+    setOrderUrl(cleanOrderUrl ?? '');
     setSaved(true);
     router.refresh();
   }
@@ -88,6 +95,30 @@ export default function TruckSettingsForm({ truck }: { truck: Truck }) {
       <div>
         <label className="mb-1 block text-xs font-semibold text-muted">Instagram handle</label>
         <input className={inputCls} placeholder="@yourtruck" value={instagram} onChange={(e) => setInstagram(e.target.value)} />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-semibold text-muted">Order Online link</label>
+        <input className={inputCls} placeholder="https://your-square-site.square.site"
+          value={orderUrl} onChange={(e) => setOrderUrl(e.target.value)} />
+        <p className="mt-1 text-xs text-muted">
+          Paste a link to wherever customers can already order from you (Square Online, DoorDash,
+          your own site — whatever you use). We&rsquo;ll show an &ldquo;Order Online&rdquo; button
+          on your public page only once this is filled in, and customers are always told they&rsquo;re
+          leaving XLeats before it opens. XLeats never touches payments — this is just a link to
+          your own ordering system.
+        </p>
+        <details className="mt-2 rounded-lg border border-edge p-3 text-xs text-muted">
+          <summary className="cursor-pointer font-semibold text-ink">
+            Don&rsquo;t have an ordering link yet? Here&rsquo;s the free way to get one.
+          </summary>
+          <ol className="mt-2 list-decimal space-y-1 pl-4">
+            <li>Sign in (or sign up free) at <span className="font-semibold">squareup.com</span>.</li>
+            <li>From the Square dashboard, go to <span className="font-semibold">Square Online</span> and create a free site — you don&rsquo;t need a paid plan for this.</li>
+            <li>Add your menu items in Square (or import the ones you already added here).</li>
+            <li>Once your site is live, Square gives you a URL like <span className="font-semibold">yourtruckname.square.site</span> — copy that.</li>
+            <li>Paste it into the field above and save. That&rsquo;s it — Square handles the ordering and payment, XLeats just links to it.</li>
+          </ol>
+        </details>
       </div>
 
       {error && <p className="text-sm text-brand">{error}</p>}

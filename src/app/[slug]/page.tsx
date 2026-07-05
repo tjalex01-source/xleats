@@ -441,6 +441,18 @@ export default async function PublicTruckPage({
         )}
       </section>
 
+      {/* Order Online — only shown once the vendor has actually set a link */}
+      {truck.order_url && (
+        <div className="mb-6 text-center">
+          <a
+            href={`/order?truck=${truck.slug}`}
+            className="inline-block w-full rounded-lg bg-brand px-6 py-3 font-display font-bold text-white"
+          >
+            Order Online
+          </a>
+        </div>
+      )}
+
       {/* Catering menu (Pro/Fleet only) */}
       {cateringMenuItems.length > 0 && (
         <section className="mb-6">

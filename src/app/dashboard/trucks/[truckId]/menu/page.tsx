@@ -194,7 +194,7 @@ export default function Menu() {
       <h1 className="mt-3 font-display text-3xl font-extrabold">Menu</h1>
       <p className="text-sm text-muted">
         A clean, itemized menu leads to more customers than a photo of your menu board —
-        shoppers can actually see what you have before they decide to stop.
+        it looks more professional, and it is much easier to change if your menu changes.
       </p>
 
       {/* Add / edit item form */}
@@ -348,8 +348,9 @@ export default function Menu() {
         <div className="eyebrow mb-2">Or upload photos of your menu</div>
         <p className="mb-2 text-sm text-muted">
           If you'd rather not list items one by one, upload a photo of your menu board instead.
-          Worth knowing: vendors who type out their items tend to draw more customers than a
-          photo alone — people can see exactly what's on offer before they walk up.
+          Worth noting, vendors who type out their items individually will likely draw more
+          customers and come across as more professional, especially if your menu photos are
+          hard to read.
         </p>
         <input type="file" accept="image/*" disabled={photoUploading}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMenuPhoto(f); }} className="text-sm" />

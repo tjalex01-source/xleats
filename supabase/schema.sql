@@ -85,6 +85,7 @@ create table trucks (
   logo_url            text,
   banner_url          text,
   instagram           text,
+  order_url           text,  -- link-out to the vendor's own ordering system (Square, etc.)
   service_radius_miles int not null default 10,
   created_at          timestamptz not null default now()
 );
