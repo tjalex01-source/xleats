@@ -12,6 +12,7 @@ export default function Posts() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [body, setBody] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
 
   async function load() {
@@ -21,23 +22,40 @@ export default function Posts() {
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [truckId]);
 
-  async function post() {
+  function resetForm() {
+    setBody(''); setPhotoFile(null); setEditingId(null);
+  }
+
+  function startEdit(p: Post) {
+    setBody(p.body);
+    setPhotoFile(null);
+    setEditingId(p.id);
+  }
+
+  async function save() {
     if (!body.trim()) return;
     setPosting(true);
-    let imageUrl: string | null = null;
+    let imageUrl: string | null | undefined;
     if (photoFile) {
       const path = `${truckId}/${crypto.randomUUID()}-${photoFile.name}`;
       const { error } = await supabase.storage.from('posts').upload(path, photoFile);
       if (!error) imageUrl = supabase.storage.from('posts').getPublicUrl(path).data.publicUrl;
     }
-    await supabase.from('posts').insert({ truck_id: truckId, body, image_url: imageUrl });
-    setBody(''); setPhotoFile(null); setPosting(false); load();
+    if (editingId) {
+      const patch: { body: string; image_url?: string } = { body };
+      if (imageUrl) patch.image_url = imageUrl;
+      await supabase.from('posts').update(patch).eq('id', editingId);
+    } else {
+      await supabase.from('posts').insert({ truck_id: truckId, body, image_url: imageUrl ?? null });
+    }
+    setPosting(false); resetForm(); load();
     // TODO(phase1): fan out push to followers on new post — needs the customer app's
     // device push tokens to exist first (later phase), not buildable yet.
   }
 
   async function removePost(id: string) {
     await supabase.from('posts').delete().eq('id', id);
+    if (editingId === id) resetForm();
     load();
   }
 
@@ -54,13 +72,18 @@ export default function Posts() {
           placeholder="What’s happening at the truck today?"
           className="w-full resize-none rounded-lg border border-edge px-3 py-2 outline-none focus:border-brand" />
         <div className="mt-2">
-          <label className="mb-1 block text-xs font-semibold text-muted">Photo (optional)</label>
+          <label className="mb-1 block text-xs font-semibold text-muted">
+            {editingId ? 'Replace photo (optional)' : 'Photo (optional)'}
+          </label>
           <input type="file" accept="image/*" onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)} className="text-sm" />
         </div>
-        <button onClick={post} disabled={!body.trim() || posting}
-          className="mt-3 rounded-lg bg-brand px-4 py-2 font-display font-bold text-white disabled:opacity-60">
-          {posting ? 'Posting…' : 'Post update'}
-        </button>
+        <div className="mt-3 flex gap-3">
+          <button onClick={save} disabled={!body.trim() || posting}
+            className="rounded-lg bg-brand px-4 py-2 font-display font-bold text-white disabled:opacity-60">
+            {posting ? 'Saving…' : editingId ? 'Save changes' : 'Post update'}
+          </button>
+          {editingId && <button onClick={resetForm} className="text-sm text-muted">Cancel</button>}
+        </div>
       </div>
 
       <div className="mt-4 space-y-2">
@@ -73,7 +96,10 @@ export default function Posts() {
             <p className="whitespace-pre-wrap">{p.body}</p>
             <div className="mt-1 flex items-center justify-between">
               <p className="text-xs text-muted">{new Date(p.created_at).toLocaleString()}</p>
-              <button onClick={() => removePost(p.id)} className="text-xs font-semibold text-brand">Delete</button>
+              <div className="flex gap-3 text-xs font-semibold">
+                <button onClick={() => startEdit(p)} className="text-brand">Edit</button>
+                <button onClick={() => removePost(p.id)} className="text-muted">Delete</button>
+              </div>
             </div>
           </div>
         ))}
