@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import type { LiveStatus } from '@/lib/types';
+import AnnouncementsList from '@/components/AnnouncementsList';
 
 const DOT: Record<LiveStatus, string> = {
   live: 'bg-state-live', scheduled: 'bg-state-scheduled',
@@ -38,22 +39,27 @@ export default async function Dashboard() {
     .from('trucks').select('*').eq('account_id', account.id).order('created_at');
   const { data: sessions } = await supabase
     .from('live_sessions').select('truck_id,status').eq('date', today);
+  const { data: announcements } = await supabase
+    .from('announcements').select('id, title, body, created_at')
+    .order('created_at', { ascending: false }).limit(10);
   const statusFor = (id: string): LiveStatus =>
     (sessions?.find((s) => s.truck_id === id)?.status as LiveStatus) ?? 'off';
 
-  const isPro = account.plan === 'pro';
+  const isFree = account.plan === 'free';
   // Free and Pro both include 1 truck — multiple trucks is a Fleet-plan feature.
-  const atTruckLimit = (trucks?.length ?? 0) >= 1;
+  const atTruckLimit = account.plan !== 'fleet' && (trucks?.length ?? 0) >= 1;
 
   return (
     <div>
+      <AnnouncementsList announcements={announcements ?? []} />
+
       <div className="mb-5 flex items-end justify-between">
         <div>
           <div className="eyebrow">{account.name}</div>
           <h1 className="font-display text-3xl font-extrabold">Your trucks</h1>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-bold ${isPro ? 'bg-brand text-white' : 'border border-edge text-muted'}`}>
-          {isPro ? 'PRO' : 'FREE'}
+        <span className={`rounded-full px-3 py-1 text-xs font-bold ${!isFree ? 'bg-brand text-white' : 'border border-edge text-muted'}`}>
+          {account.plan.toUpperCase()}
         </span>
       </div>
 
@@ -77,7 +83,7 @@ export default async function Dashboard() {
       </div>
 
       <div className="mt-4 space-y-3">
-        {!isPro && (
+        {isFree && (
           <div className="rounded-ticket border border-dashed border-brand p-4 text-center text-sm">
             Want discount codes, contests, and birthday offers?{' '}
             <Link href="/pricing" className="font-bold text-brand underline">

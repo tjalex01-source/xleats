@@ -33,11 +33,13 @@ export default function NewTruck() {
     }
 
     // Free and Pro both include 1 truck — multiple trucks is a Fleet-plan feature.
-    const { count } = await supabase
-      .from('trucks').select('*', { count: 'exact', head: true }).eq('account_id', account.id);
-    if ((count ?? 0) >= 1) {
-      setError('Your plan includes one truck. Upgrade to Fleet to add more.');
-      setBusy(false); return;
+    if (account.plan !== 'fleet') {
+      const { count } = await supabase
+        .from('trucks').select('*', { count: 'exact', head: true }).eq('account_id', account.id);
+      if ((count ?? 0) >= 1) {
+        setError('Your plan includes one truck. Upgrade to Fleet to add more.');
+        setBusy(false); return;
+      }
     }
 
     const { data: truck, error: tErr } = await supabase

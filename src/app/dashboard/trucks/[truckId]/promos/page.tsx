@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import type { AccountPlan } from '@/lib/types';
 
 type Disc = { id: string; code: string; type: string; value: number | null; description: string | null };
 type Bday = { id: string; title: string; description: string | null; active: boolean };
@@ -10,7 +11,7 @@ type Bday = { id: string; title: string; description: string | null; active: boo
 export default function Promos() {
   const { truckId } = useParams<{ truckId: string }>();
   const supabase = createClient();
-  const [plan, setPlan] = useState<'free' | 'pro' | null>(null);
+  const [plan, setPlan] = useState<AccountPlan | null>(null);
   const [discs, setDiscs] = useState<Disc[]>([]);
   const [bdays, setBdays] = useState<Bday[]>([]);
   const [stats, setStats] = useState<{ delivered: number; redeemed: number } | null>(null);

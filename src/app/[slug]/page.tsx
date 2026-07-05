@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import type { Metadata } from 'next';
-import { createPublicClient } from '@/lib/supabase/server';
+import { createPublicClient, createAdminClient } from '@/lib/supabase/server';
 import CateringForm from './catering-form';
 
 export const revalidate = 60;
@@ -171,8 +171,16 @@ export default async function PublicTruckPage({
   const today = new Date().toISOString().slice(0, 10);
   const todayDow = new Date().getDay();
 
-  const [{ data: session }, { data: menuItems }, { data: schedules }, { data: posts }] =
+  // accounts has no public-read RLS policy, so the suspension check needs the
+  // service-role client — this never reaches the browser, it only decides
+  // whether the rest of the page renders.
+  const [{ data: accountRow }, { data: session }, { data: menuItems }, { data: schedules }, { data: posts }] =
     await Promise.all([
+      createAdminClient()
+        .from('accounts')
+        .select('suspended')
+        .eq('id', truck.account_id)
+        .maybeSingle(),
       supabase
         .from('live_sessions')
         .select('*')
@@ -200,6 +208,8 @@ export default async function PublicTruckPage({
         .order('created_at', { ascending: false })
         .limit(5),
     ]);
+
+  if (accountRow?.suspended) notFound();
 
   type MenuRow = NonNullable<typeof menuItems>[number];
   const menuByCategory = (menuItems ?? []).reduce<Record<string, MenuRow[]>>((acc, item) => {

@@ -1,5 +1,17 @@
 export type LiveStatus = 'live' | 'scheduled' | 'catering' | 'off';
-export type AccountPlan = 'free' | 'pro';
+export type AccountPlan = 'free' | 'pro' | 'fleet';
+
+export type Account = {
+  id: string;
+  owner_id: string;
+  name: string;
+  plan: AccountPlan;
+  suspended: boolean;
+  plan_expires_at: string | null;
+  comp_note: string | null;
+  stripe_customer_id: string | null;
+  created_at: string;
+};
 
 export type Truck = {
   id: string;
