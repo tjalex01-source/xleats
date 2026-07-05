@@ -31,17 +31,25 @@ export async function setPlan(formData: FormData) {
 
 export async function sendAnnouncement(formData: FormData) {
   await requireAdmin();
-  const targetAccountId = (formData.get('targetAccountId') as string) || null;
   const title = formData.get('title') as string;
   const body = formData.get('body') as string;
+  const targetAll = formData.get('targetAll') === 'on';
+  const accountIds = formData.getAll('accountIds') as string[];
   if (!title || !body) return;
+  if (!targetAll && accountIds.length === 0) return;
 
   const admin = createAdminClient();
-  await admin.from('announcements').insert({
-    target_account_id: targetAccountId || null,
-    title,
-    body,
-  });
+  const { data: announcement, error } = await admin
+    .from('announcements')
+    .insert({ title, body, target_all: targetAll })
+    .select().single();
+  if (error || !announcement) return;
+
+  if (!targetAll && accountIds.length > 0) {
+    await admin.from('announcement_recipients').insert(
+      accountIds.map((accountId) => ({ announcement_id: announcement.id, account_id: accountId }))
+    );
+  }
   revalidatePath('/admin/announcements');
 }
 

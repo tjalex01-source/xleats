@@ -1,33 +1,42 @@
 import { createAdminClient } from '@/lib/supabase/server';
 import { sendAnnouncement, deleteAnnouncement } from '../actions';
+import AnnouncementRecipients from '@/components/admin/AnnouncementRecipients';
 
 export default async function AdminAnnouncements() {
   const admin = createAdminClient();
 
-  const { data: accounts } = await admin
-    .from('accounts').select('id, name').order('name');
-  const { data: announcements } = await admin
-    .from('announcements').select('*').order('created_at', { ascending: false });
+  const [{ data: accounts }, { data: trucks }, { data: usersPage }, { data: announcements }, { data: recipients }] =
+    await Promise.all([
+      admin.from('accounts').select('id, name').order('name'),
+      admin.from('trucks').select('account_id, name, slug'),
+      admin.auth.admin.listUsers({ perPage: 1000 }),
+      admin.from('announcements').select('*').order('created_at', { ascending: false }),
+      admin.from('announcement_recipients').select('announcement_id, account_id'),
+    ]);
 
-  const accountName = (id: string | null) =>
-    id ? accounts?.find((a) => a.id === id)?.name ?? '(deleted account)' : 'Everyone';
+  const emailFor = (ownerId: string) =>
+    usersPage?.users.find((u) => u.id === ownerId)?.email ?? '(unknown)';
+  const accountName = (id: string) => accounts?.find((a) => a.id === id)?.name ?? '(deleted account)';
+
+  const pickableAccounts = (accounts ?? []).map((a) => {
+    const ownedTrucks = trucks?.filter((t) => t.account_id === a.id) ?? [];
+    const label = [a.name, emailFor(a.id), ...ownedTrucks.map((t) => t.name)].filter(Boolean).join(' — ');
+    return { id: a.id, label };
+  });
+
+  const recipientsFor = (announcementId: string) =>
+    recipients?.filter((r) => r.announcement_id === announcementId).map((r) => accountName(r.account_id)) ?? [];
 
   return (
     <div>
       <h1 className="font-display text-3xl font-extrabold">Announcements</h1>
       <p className="mt-1 text-muted">
-        Shows up in the vendor dashboard. Pick a specific truck owner, or leave it as
-        Everyone to broadcast to all vendors.
+        Shows up in the vendor dashboard. Broadcast to everyone, or search and pick
+        specific vendors.
       </p>
 
       <form action={sendAnnouncement} className="mt-6 space-y-3 rounded-ticket border border-edge bg-white p-4 shadow-ticket">
-        <select name="targetAccountId" defaultValue=""
-          className="w-full rounded-lg border border-edge px-3 py-2.5 text-sm">
-          <option value="">Everyone</option>
-          {accounts?.map((a) => (
-            <option key={a.id} value={a.id}>{a.name}</option>
-          ))}
-        </select>
+        <AnnouncementRecipients accounts={pickableAccounts} />
         <input name="title" placeholder="Title" required
           className="w-full rounded-lg border border-edge px-3 py-2.5 outline-none focus:border-brand" />
         <textarea name="body" placeholder="Message" required rows={4}
@@ -46,7 +55,8 @@ export default async function AdminAnnouncements() {
               <div>
                 <div className="font-display font-bold">{a.title}</div>
                 <div className="text-xs text-muted">
-                  To: {accountName(a.target_account_id)} · {new Date(a.created_at).toLocaleString()}
+                  To: {a.target_all ? 'Everyone' : (recipientsFor(a.id).join(', ') || '(no vendors)')}
+                  {' · '}{new Date(a.created_at).toLocaleString()}
                 </div>
                 <p className="mt-2 text-sm">{a.body}</p>
               </div>

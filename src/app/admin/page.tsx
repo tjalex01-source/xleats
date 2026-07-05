@@ -1,7 +1,12 @@
 import { createAdminClient } from '@/lib/supabase/server';
 import { setSuspended, setPlan } from './actions';
 
-export default async function AdminVendors() {
+export default async function AdminVendors({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
+  const { q } = await searchParams;
   const admin = createAdminClient();
 
   const { data: accounts } = await admin
@@ -20,13 +25,35 @@ export default async function AdminVendors() {
 
   const trucksFor = (accountId: string) => trucks?.filter((t) => t.account_id === accountId) ?? [];
 
+  // Server-side filter (no client JS needed) — matches vendor/account name,
+  // any of its truck names/slugs, or the owner's email.
+  const query = q?.trim().toLowerCase();
+  const filteredAccounts = !query ? accounts : accounts?.filter((account) => {
+    const haystack = [
+      account.name,
+      emailFor(account.owner_id),
+      ...trucksFor(account.id).flatMap((t) => [t.name, t.slug]),
+    ].join(' ').toLowerCase();
+    return haystack.includes(query);
+  });
+
   return (
     <div>
       <h1 className="font-display text-3xl font-extrabold">Vendors</h1>
-      <p className="mt-1 text-muted">{accounts?.length ?? 0} accounts</p>
+      <p className="mt-1 text-muted">
+        {filteredAccounts?.length ?? 0} of {accounts?.length ?? 0} accounts
+      </p>
+
+      <form method="get" className="mt-4">
+        <input name="q" defaultValue={q ?? ''} placeholder="Search by vendor name, truck name, or email…"
+          className="w-full rounded-lg border border-edge px-3 py-2.5 outline-none focus:border-brand" />
+      </form>
 
       <div className="mt-6 space-y-4">
-        {accounts?.map((account) => (
+        {filteredAccounts?.length === 0 && (
+          <p className="text-sm text-muted">No vendors match &ldquo;{q}&rdquo;.</p>
+        )}
+        {filteredAccounts?.map((account) => (
           <div key={account.id} className="rounded-ticket border border-edge bg-white p-4 shadow-ticket">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
