@@ -518,3 +518,10 @@ create policy menu_photos_bucket_read on storage.objects for select
 create policy menu_photos_bucket_write on storage.objects for all
   using (bucket_id = 'menu-photos' and owns_or_manages_truck(((storage.foldername(name))[1])::uuid))
   with check (bucket_id = 'menu-photos' and owns_or_manages_truck(((storage.foldername(name))[1])::uuid));
+
+-- path: {truck_id}/...
+create policy posts_bucket_read on storage.objects for select
+  using (bucket_id = 'posts');
+create policy posts_bucket_write on storage.objects for all
+  using (bucket_id = 'posts' and owns_or_manages_truck(((storage.foldername(name))[1])::uuid))
+  with check (bucket_id = 'posts' and owns_or_manages_truck(((storage.foldername(name))[1])::uuid));
