@@ -42,7 +42,8 @@ export default async function Dashboard() {
     (sessions?.find((s) => s.truck_id === id)?.status as LiveStatus) ?? 'off';
 
   const isPro = account.plan === 'pro';
-  const atFreeLimit = !isPro && (trucks?.length ?? 0) >= 1;
+  // Free and Pro both include 1 truck — multiple trucks is a Fleet-plan feature.
+  const atTruckLimit = (trucks?.length ?? 0) >= 1;
 
   return (
     <div>
@@ -75,13 +76,13 @@ export default async function Dashboard() {
         })}
       </div>
 
-      {atFreeLimit ? (
+      {atTruckLimit ? (
         <div className="mt-4 rounded-ticket border border-dashed border-brand p-4 text-center text-sm">
           Running more than one truck?{' '}
           <Link href="/pricing" className="font-bold text-brand underline">
             See pricing plans
           </Link>{' '}
-          — Pro unlocks multiple trucks, discount codes, contests, and birthday offers.
+          — Fleet lets you manage them all from one account.
         </div>
       ) : (
         <Link href="/dashboard/new-truck"
@@ -90,11 +91,13 @@ export default async function Dashboard() {
         </Link>
       )}
 
-      <div className="mt-6 flex justify-center">
-        <Link href="/pricing" className="text-sm text-muted underline hover:text-ink">
-          View pricing & plans
-        </Link>
-      </div>
+      {!atTruckLimit && (
+        <div className="mt-6 flex justify-center">
+          <Link href="/pricing" className="text-sm text-muted underline hover:text-ink">
+            View pricing & plans
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

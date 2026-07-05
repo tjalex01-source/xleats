@@ -15,6 +15,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </Link>
           <div className="flex items-center gap-4 text-sm">
             <span className="hidden text-muted sm:inline">{user?.email}</span>
+            <Link href="/dashboard/settings" className="font-semibold text-muted hover:text-ink">
+              Settings
+            </Link>
             <SignOut />
           </div>
         </div>

@@ -9,6 +9,7 @@ export type Truck = {
   cuisine: string | null;
   bio: string | null;
   logo_url: string | null;
+  banner_url: string | null;
   instagram: string | null;
   service_radius_miles: number;
 };

@@ -32,11 +32,11 @@ export default function NewTruck() {
       account = data;
     }
 
-    // Free tier = 1 truck.
+    // Free and Pro both include 1 truck — multiple trucks is a Fleet-plan feature.
     const { count } = await supabase
       .from('trucks').select('*', { count: 'exact', head: true }).eq('account_id', account.id);
-    if (account.plan === 'free' && (count ?? 0) >= 1) {
-      setError('Free accounts include one truck. Upgrade to Pro to add more.');
+    if ((count ?? 0) >= 1) {
+      setError('Your plan includes one truck. Upgrade to Fleet to add more.');
       setBusy(false); return;
     }
 
