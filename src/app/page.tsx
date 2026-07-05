@@ -4,6 +4,14 @@ import Image from 'next/image';
 export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center px-6 text-center">
+      <Image
+        src="/xleats-logo.png"
+        alt="XLeats"
+        width={400}
+        height={200}
+        className="w-40 sm:w-48"
+        priority
+      />
       <div className="truck-roll mb-2 w-full max-w-2xl">
         <Image
           src="/truck-logo.png"
