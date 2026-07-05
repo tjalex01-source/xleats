@@ -13,13 +13,17 @@ function GoogleIcon() {
   );
 }
 
-function FacebookIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path fill="#fff" d="M18 9a9 9 0 1 0-10.4 8.89v-6.29H5.3V9h2.3V7c0-2.27 1.35-3.53 3.42-3.53.99 0 2.03.18 2.03.18v2.23h-1.14c-1.13 0-1.48.7-1.48 1.42V9h2.52l-.4 2.6h-2.12v6.29A9 9 0 0 0 18 9z"/>
-    </svg>
-  );
-}
+// Facebook login is configured in Supabase but Meta's business verification
+// isn't cleared yet, so the button is disabled here to avoid a broken-looking
+// login option for real customers. Re-enable by restoring the button below
+// once Facebook login actually works for non-testers.
+// function FacebookIcon() {
+//   return (
+//     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+//       <path fill="#fff" d="M18 9a9 9 0 1 0-10.4 8.89v-6.29H5.3V9h2.3V7c0-2.27 1.35-3.53 3.42-3.53.99 0 2.03.18 2.03.18v2.23h-1.14c-1.13 0-1.48.7-1.48 1.42V9h2.52l-.4 2.6h-2.12v6.29A9 9 0 0 0 18 9z"/>
+//     </svg>
+//   );
+// }
 
 export default function OAuthButtons() {
   const [loading, setLoading] = useState<'google' | 'facebook' | null>(null);
@@ -44,14 +48,14 @@ export default function OAuthButtons() {
         >
           <GoogleIcon /> {loading === 'google' ? '…' : 'Google'}
         </button>
-        <button
+        {/* <button
           type="button"
           onClick={() => signIn('facebook')}
           disabled={loading !== null}
           className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#1877F2] py-2.5 text-sm font-semibold text-white disabled:opacity-60"
         >
           <FacebookIcon /> {loading === 'facebook' ? '…' : 'Facebook'}
-        </button>
+        </button> */}
       </div>
       <div className="mt-4 flex items-center gap-3">
         <div className="h-px flex-1 bg-edge" />
