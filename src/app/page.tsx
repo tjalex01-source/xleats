@@ -12,6 +12,7 @@ export default function Home() {
         className="w-64 sm:w-80"
         priority
       />
+      <p className="eyebrow -mt-1 mb-2">Your Food Truck&rsquo;s Wingman</p>
       <div className="truck-roll mb-2 w-full max-w-2xl">
         <Image
           src="/truck-logo.png"
