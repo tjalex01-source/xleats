@@ -40,7 +40,7 @@ Key rules:
 ### Saved locations & saved offers (reduce daily friction)
 Both are the same pattern — **reusable templates the vendor picks from instead of retyping** — and both exist to make the daily habit low-friction (which is what keeps the green dot trustworthy).
 - **Saved locations — built.** Truck-scoped (`saved_locations` table: name, address, lat/lng). Used both on the schedule builder and picked from a dropdown when adding a day/slot — no retyping an address every week. Vendors can also set **multiple locations per day** (e.g. a morning spot + an afternoon spot, or a spot + private catering) — schedules are not limited to one row per day.
-- **Saved offers/codes — not yet built.** Vendor would store reusable discount codes / offer templates (e.g. "Free dessert", "10% off") to pick from the shelf for a promo or the birthday send instead of composing each time. Still TODO.
+- **Saved offers/codes — built, as the general Promos "Offers" system** (see "Promos page — built" below): discount codes, plus birthday/holiday/welcome/custom offers, are all vendor-managed reusable templates now.
 
 ---
 
@@ -260,9 +260,9 @@ vercel.json                  # cron schedule registrations
 
 ## Database schema (summary — schema.sql is the real source of truth)
 
-Tables: `profiles`, `accounts`, `trucks`, `truck_members`, `menu_items`, `menu_item_trucks`, `menu_photos`, `schedules`, `saved_locations`, `posts`, `follows`, `live_sessions`, `catering_requests`, `announcements`, `announcement_recipients`, `devices` (expo push tokens, stubbed), `discount_codes`, `contests`, `contest_entries` — plus birthday-offer broker tables (planned, not yet built).
+Tables: `profiles`, `accounts`, `trucks`, `truck_members`, `menu_items`, `menu_item_trucks`, `menu_photos`, `schedules`, `saved_locations`, `posts`, `follows`, `live_sessions`, `catering_requests`, `announcements`, `announcement_recipients`, `devices` (expo push tokens, stubbed), `discount_codes`, `contests`, `contest_entries`, `offers`, `offer_redemptions` (renamed from `birthday_offers`/`birthday_redemptions` — see Promos section).
 
-Enums: `live_status = live | scheduled | catering | off | closed`; `account_plan = free | pro | fleet`; `member_role = owner | manager | worker`; `discount_type = percent | amount | free_item`; `contest_type = count | prediction`.
+Enums: `live_status = live | scheduled | catering | off | closed`; `account_plan = free | pro | fleet`; `member_role = owner | manager | worker`; `discount_type = percent | amount | free_item`; `contest_type = count | prediction | first_n | raffle | manual`; `offer_type = birthday | holiday | new_follower | custom`.
 
 `live_sessions` shape:
 ```
@@ -302,11 +302,23 @@ confirmed_lat, confirmed_lng, confirmed_address, catering_note
 - **Order Online** — `order_url` field (Free tier, not gated) + Square setup instructions + "leaving XLeats" interstitial (`/order?truck=<slug>`, looks up the destination server-side to prevent open-redirect).
 - **Catering request form** (`/api/catering` → `catering_requests` table + RLS) — public insert, owner-only read.
 - **Full admin panel** (`xleats.com/admin`) — vendor search/suspend/comp, announcements (broadcast or targeted), all gated by `ADMIN_EMAILS` allowlist re-verified server-side on every call.
-- **Crons**: expire stale sessions, daily status-seed from schedule, weekly schedule-reminder nudge, daily plan-expire (reverts comped accounts).
+- **Crons**: expire stale sessions, daily status-seed from schedule, weekly schedule-reminder nudge, daily plan-expire (reverts comped accounts), daily offer-matcher (`/api/cron/offers` → `generate_scheduled_offers`).
 - Times display **12-hour AM/PM** everywhere in the UI (`formatTime12`), stored as 24-hour in the DB.
 - Street-food visual identity (order-ticket cards, paprika accent, signage type).
 
 **Build status:** compiles clean, all routes type-check.
+
+---
+
+## Promos page — built
+
+`/dashboard/trucks/[truckId]/promos` (Pro/Fleet gated) has three sections, each: create → list below with manage actions.
+
+- **Discount codes** — type dropdown (percent/amount/free item), description, optional max-redemptions and expiry, active Pause/Resume + Delete. A "redeem at the window" box calls `redeem_discount_code()`, which now actually enforces expiry/max-redemptions and increments the counter (previously these fields existed in schema but nothing read or wrote them).
+- **Offers** — generalized from a birthday-only feature into one box with an `offer_type` dropdown: **Birthday** (matches a customer's own birthday, unchanged), **Holiday / seasonal** (a Father's-Day-style discount — recurring annual date or a one-time date, sent to every follower + nearby customer, not gated on their birthday), **Welcome new follower** (fires instantly via an `on_new_follow` trigger on `follows`, not the daily cron), **Custom** (same date-trigger mechanism as holiday, freeform use). Each offer in the list shows delivered/redeemed counts (`offer_stats()`, one row per offer now instead of one aggregate per truck) and has Pause/Resume + Delete. A "redeem at the window" box calls `redeem_offer_code()`. Renamed tables: `birthday_offers`→`offers`, `birthday_redemptions`→`offer_redemptions`; renamed functions: `generate_birthday_offers`→`generate_scheduled_offers`, `birthday_offer_stats`→`offer_stats`, `redeem_birthday_code`→`redeem_offer_code`. Migration: `supabase/offers_generalization.sql`.
+- **Contests** — type dropdown: **Prediction** (guess a number/text; vendor sets the correct answer after close, "Pick winner" resolves to an exact match or closest numeric guess), **First to enter** (auto-resolves to the earliest N `contest_entries` rows), **Raffle drawing** (auto-resolves to N random entries), **Manual / social** (no in-app entries — e.g. an Instagram photo contest — vendor just types in who won). The old `count` type ("100th customer today") is kept in the enum for compatibility but no longer offered in the UI, since it can't be detected without a POS (see gotchas) — `first_n` is its in-app-trackable replacement. Winners resolve via `resolve_contest_winners()`, stored as `contests.winner_entry_ids` (or `winner_note` for manual). Migration: `supabase/contests_expansion.sql`.
+
+**Important structural gap surfaced while building this (not fixed, by design — see below):** there is still no customer-facing signup/follow/birthday-capture flow anywhere in the product — every signup creates a vendor (`role: 'owner'`) account. So `offers`/`contest_entries` have real, working backend logic (verified live with disposable test accounts) but will show `0` delivered/entries for real trucks until the native customer app ships. T.J.'s explicit call: build the vendor side fully now, wire it to make the customer-app integration seamless later, and don't build a stopgap web customer flow.
 
 ---
 
@@ -317,17 +329,16 @@ confirmed_lat, confirmed_lng, confirmed_address, catering_note
 3. **Dietary/allergy tags** on menu items.
 4. **"Limited today" count** on menu items.
 5. **Reviews — hybrid carousel** (4–5★ public, below-4★ private to vendor).
-6. **Saved offers** (reusable discount/offer templates).
-7. **Go-live birthday prompt + birthday engine** (customer birthday capture, dual-consent, daily matcher, aggregate stats to vendor) — the whole privacy-broker feature is designed but not built.
-8. **Push fan-out to followers** (new post / go-live → Expo push). `devices` table exists but isn't wired to a send path yet.
-9. **Upsell teaser engine + customer discovery filters** (quantified value-gap nudges; customer-app one-tap filters that only surface Pro+ vendors).
-10. **Expanded employee permissions** (granular `truck_members` toggles beyond `can_go_live`).
-11. **Engagement analytics layer** (profile views, follower growth, go-live frequency, redemptions, best spot by reach).
-12. **Social auto-share on go-live.**
-13. **Calendar sync** (schedule → Google Calendar).
-14. **Schedule map-pin picker** (currently address/lat/lng entry, no visual picker).
-15. **Stripe checkout** (free → pro → fleet → enterprise), 14-day Pro trial, and wiring the admin comp tool's parity with real billing once Stripe lands.
-16. **Enterprise tier** — add to `account_plan` enum + per-truck/negotiated billing model once pricing shape locks.
+6. **Push fan-out to followers** (new post / go-live / offer-delivered → Expo push). `devices`/`notifications` tables exist but aren't wired to an actual send path yet.
+7. **Upsell teaser engine + customer discovery filters** (quantified value-gap nudges; customer-app one-tap filters that only surface Pro+ vendors).
+8. **Expanded employee permissions** (granular `truck_members` toggles beyond `can_go_live`).
+9. **Engagement analytics layer** (profile views, follower growth, go-live frequency, redemptions, best spot by reach).
+10. **Social auto-share on go-live.**
+11. **Calendar sync** (schedule → Google Calendar).
+12. **Schedule map-pin picker** (currently address/lat/lng entry, no visual picker).
+13. **Stripe checkout** (free → pro → fleet → enterprise), 14-day Pro trial, and wiring the admin comp tool's parity with real billing once Stripe lands.
+14. **Enterprise tier** — add to `account_plan` enum + per-truck/negotiated billing model once pricing shape locks.
+15. **The native customer app itself** — signup, follow, birthday capture, push tokens. Everything above in "Promos page — built" is real but inert until this ships; T.J.'s stated next major phase after the vendor web app is done.
 
 ---
 

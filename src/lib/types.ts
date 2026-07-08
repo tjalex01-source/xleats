@@ -1,5 +1,8 @@
 export type LiveStatus = 'live' | 'scheduled' | 'catering' | 'off' | 'closed';
 export type AccountPlan = 'free' | 'pro' | 'fleet';
+export type DiscountType = 'percent' | 'amount' | 'free_item';
+export type OfferType = 'birthday' | 'holiday' | 'new_follower' | 'custom';
+export type ContestType = 'count' | 'prediction' | 'first_n' | 'raffle' | 'manual';
 
 export type Account = {
   id: string;
@@ -69,6 +72,61 @@ export type SavedLocation = {
   address: string | null;
   lat: number | null;
   lng: number | null;
+};
+
+export type DiscountCode = {
+  id: string;
+  truck_id: string;
+  code: string;
+  type: DiscountType;
+  value: number | null;
+  description: string | null;
+  max_redemptions: number | null;
+  redemptions: number;
+  expires_at: string | null;
+  active: boolean;
+};
+
+export type Offer = {
+  id: string;
+  truck_id: string;
+  offer_type: OfferType;
+  title: string;
+  description: string | null;
+  radius_miles: number | null;
+  trigger_month: number | null;
+  trigger_day: number | null;
+  trigger_date: string | null;
+  active: boolean;
+};
+
+export type OfferStat = {
+  offer_id: string;
+  delivered: number;
+  redeemed: number;
+};
+
+export type Contest = {
+  id: string;
+  truck_id: string;
+  type: ContestType;
+  title: string;
+  description: string | null;
+  prize: string | null;
+  status: string;
+  closes_at: string | null;
+  answer: string | null;
+  winner_limit: number | null;
+  winner_note: string | null;
+  winner_entry_ids: string[];
+};
+
+export type ContestEntry = {
+  id: string;
+  contest_id: string;
+  user_id: string;
+  entry_value: string | null;
+  created_at: string;
 };
 
 export type LiveSession = {

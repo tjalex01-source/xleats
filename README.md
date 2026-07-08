@@ -27,7 +27,7 @@ src/
     api/
       live/                           upserts today's live_sessions row
       cron/expire/                    flips stale live sessions to off (*/15 min)
-      cron/birthdays/                 runs the birthday matcher (daily)
+      cron/offers/                    runs the birthday/holiday offer matcher (daily)
   components/StatusControl.tsx        signature 4-state go-live control + GPS
   lib/supabase/                       browser / server / admin / middleware clients
 ```
@@ -46,7 +46,7 @@ src/
    - `CRON_SECRET` (any long random string)
    - `NEXT_PUBLIC_SITE_URL` = `https://xleats.com`
 
-4. **Crons** are declared in `vercel.json` (expire every 15 min, birthdays daily
+4. **Crons** are declared in `vercel.json` (expire every 15 min, offers daily
    at 13:00 UTC). Vercel sends them with the `CRON_SECRET` bearer token, which the
    routes check. No extra setup needed beyond the env var.
 
@@ -61,10 +61,11 @@ database level, not just the UI:
   coordinates are never visible to a truck.
 - `follows` RLS: private to the customer. Trucks get a number via
   `truck_follower_count()`, never the list.
-- `birthday_redemptions` RLS: a customer sees only their own delivered code. The
-  daily matcher runs as the service role and writes codes; the truck sees only
-  `birthday_offer_stats()` (delivered / redeemed counts) and redeems a presented
-  code via `redeem_birthday_code()` — which returns true/false, never an identity.
+- `offer_redemptions` RLS: a customer sees only their own delivered code. The
+  daily matcher (or, for a new-follower offer, an instant trigger on `follows`)
+  runs as the service role and writes codes; the truck sees only
+  `offer_stats()` (delivered / redeemed counts per offer) and redeems a presented
+  code via `redeem_offer_code()` — which returns true/false, never an identity.
 
 If you ever loosen these policies, that's the thing to be careful about.
 

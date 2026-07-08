@@ -22,7 +22,8 @@ create type account_plan  as enum ('free', 'pro', 'fleet');
 create type member_role   as enum ('owner', 'manager', 'worker');
 create type live_status   as enum ('live', 'scheduled', 'catering', 'off', 'closed');
 create type discount_type as enum ('percent', 'amount', 'free_item');
-create type contest_type  as enum ('count', 'prediction');
+create type contest_type  as enum ('count', 'prediction', 'first_n', 'raffle', 'manual');
+create type offer_type    as enum ('birthday', 'holiday', 'new_follower', 'custom');
 
 -- ----------------------------------------------------------------------------
 -- profiles  (1:1 with auth.users)
@@ -283,16 +284,19 @@ create table discount_codes (
 );
 
 create table contests (
-  id          uuid primary key default gen_random_uuid(),
-  truck_id    uuid not null references trucks(id) on delete cascade,
-  type        contest_type not null,
-  title       text not null,
-  description text,
-  prize       text,
-  status      text not null default 'open',   -- 'open' | 'closed'
-  closes_at   timestamptz,
-  answer      text,                            -- e.g. final score for a prediction
-  created_at  timestamptz not null default now()
+  id               uuid primary key default gen_random_uuid(),
+  truck_id         uuid not null references trucks(id) on delete cascade,
+  type             contest_type not null,
+  title            text not null,
+  description      text,
+  prize            text,
+  status           text not null default 'open',   -- 'open' | 'closed'
+  closes_at        timestamptz,
+  answer           text,                            -- e.g. final score for a prediction
+  winner_limit     int,                             -- # of winners for first_n / raffle
+  winner_note      text,                            -- freeform winner for 'manual' contests
+  winner_entry_ids uuid[] not null default '{}',     -- resolved winners for first_n/raffle/prediction
+  created_at       timestamptz not null default now()
 );
 
 create table contest_entries (
@@ -305,29 +309,37 @@ create table contest_entries (
 );
 
 -- ----------------------------------------------------------------------------
--- BIRTHDAY OFFERS  (the privacy-critical feature)
--- A truck defines a standing offer. The platform (service role, daily job)
--- matches eligible customers and writes birthday_redemptions rows with a code.
--- The truck only ever sees aggregate counts + can redeem a presented code.
+-- OFFERS  (the privacy-critical feature)
+-- A truck defines a standing offer of one of several types (birthday,
+-- holiday/seasonal on a date, welcome-new-follower, or a custom date). The
+-- platform (service role) matches eligible customers and writes
+-- offer_redemptions rows with a code — birthday/holiday/custom via the daily
+-- generate_scheduled_offers() cron, new_follower immediately via a trigger
+-- on follows. The truck only ever sees aggregate counts + can redeem a
+-- presented code.
 -- ----------------------------------------------------------------------------
-create table birthday_offers (
-  id          uuid primary key default gen_random_uuid(),
-  truck_id    uuid not null references trucks(id) on delete cascade,
-  title       text not null,
-  description text,
-  radius_miles int,                 -- overrides truck.service_radius_miles when set
-  active      boolean not null default true,
-  created_at  timestamptz not null default now()
+create table offers (
+  id            uuid primary key default gen_random_uuid(),
+  truck_id      uuid not null references trucks(id) on delete cascade,
+  offer_type    offer_type not null default 'birthday',
+  title         text not null,
+  description   text,
+  radius_miles  int,                 -- overrides truck.service_radius_miles when set
+  trigger_month int check (trigger_month between 1 and 12),  -- holiday/custom: recurring annual date
+  trigger_day   int check (trigger_day between 1 and 31),
+  trigger_date  date,                                        -- holiday/custom: one-time date
+  active        boolean not null default true,
+  created_at    timestamptz not null default now()
 );
 
-create table birthday_redemptions (
-  id                uuid primary key default gen_random_uuid(),
-  birthday_offer_id uuid not null references birthday_offers(id) on delete cascade,
-  user_id           uuid not null references profiles(id) on delete cascade,
-  code              text not null,
-  delivered_on      date not null default current_date,
-  redeemed_at       timestamptz,
-  unique (birthday_offer_id, user_id, delivered_on)
+create table offer_redemptions (
+  id           uuid primary key default gen_random_uuid(),
+  offer_id     uuid not null references offers(id) on delete cascade,
+  user_id      uuid not null references profiles(id) on delete cascade,
+  code         text not null,
+  delivered_on date not null default current_date,
+  redeemed_at  timestamptz,
+  unique (offer_id, user_id, delivered_on)
 );
 
 -- ----------------------------------------------------------------------------
@@ -396,36 +408,218 @@ returns int language sql security definer stable set search_path = public as $$
   select count(*)::int from follows where truck_id = p_truck;
 $$;
 
-create or replace function birthday_offer_stats(p_truck uuid)
-returns table (delivered int, redeemed int)
+-- One row PER OFFER — a truck can run several offers (birthday, holiday,
+-- welcome) at once.
+create or replace function offer_stats(p_truck uuid)
+returns table (offer_id uuid, delivered int, redeemed int)
 language sql security definer stable set search_path = public as $$
-  select count(*)::int,
-         count(*) filter (where r.redeemed_at is not null)::int
-    from birthday_redemptions r
-    join birthday_offers o on o.id = r.birthday_offer_id
+  select o.id,
+         count(r.id)::int,
+         count(r.id) filter (where r.redeemed_at is not null)::int
+    from offers o
+    left join offer_redemptions r on r.offer_id = o.id
    where o.truck_id = p_truck
-     and owns_or_manages_truck(p_truck);   -- caller must manage the truck
+     and owns_or_manages_truck(p_truck)
+   group by o.id;
 $$;
 
--- Worker scans/enters a customer's birthday code at the window.
+-- Worker scans/enters a customer's offer code at the window.
 -- Returns true if a valid, unredeemed code for this truck was just redeemed.
 -- Never returns the customer's identity.
-create or replace function redeem_birthday_code(p_code text, p_truck uuid)
+create or replace function redeem_offer_code(p_code text, p_truck uuid)
 returns boolean language plpgsql security definer set search_path = public as $$
 declare hit int;
 begin
   if not owns_or_manages_truck(p_truck) then
     return false;
   end if;
-  update birthday_redemptions r
+  update offer_redemptions r
      set redeemed_at = now()
-    from birthday_offers o
-   where o.id = r.birthday_offer_id
+    from offers o
+   where o.id = r.offer_id
      and o.truck_id = p_truck
      and r.code = p_code
      and r.redeemed_at is null;
   get diagnostics hit = row_count;
   return hit > 0;
+end;
+$$;
+
+-- Daily matcher: birthday offers match per-customer birthdays. holiday/custom
+-- offers match on a trigger date (recurring annual trigger_month/day, or a
+-- specific one-time trigger_date) and go to EVERY follower + nearby
+-- customer, not just people with a birthday today. new_follower offers are
+-- NOT handled here — see handle_new_follow() below.
+create or replace function generate_scheduled_offers(p_date date default current_date)
+returns int
+language plpgsql security definer set search_path = public, postgis as $$
+declare
+  v_month int := extract(month from p_date)::int;
+  v_day   int := extract(day   from p_date)::int;
+  v_count int := 0;
+  o       record;
+  p       record;
+  v_radius int;
+  v_truck_lat double precision;
+  v_truck_lng double precision;
+begin
+  for o in
+    select ofr.*, t.service_radius_miles
+      from offers ofr
+      join trucks t on t.id = ofr.truck_id
+     where ofr.active
+       and ofr.offer_type in ('birthday', 'holiday', 'custom')
+  loop
+    if o.offer_type in ('holiday', 'custom') then
+      if not (
+        (o.trigger_date is not null and o.trigger_date = p_date)
+        or (o.trigger_date is null and o.trigger_month = v_month and o.trigger_day = v_day)
+      ) then
+        continue; -- not today, skip
+      end if;
+    end if;
+
+    v_radius := coalesce(o.radius_miles, o.service_radius_miles, 10);
+
+    select s.lat, s.lng into v_truck_lat, v_truck_lng
+      from schedules s
+     where s.truck_id = o.truck_id
+       and (s.date = p_date
+            or (s.recurring and s.day_of_week = extract(dow from p_date)::int))
+       and s.lat is not null
+     order by s.date nulls last
+     limit 1;
+
+    for p in
+      select pr.id
+        from profiles pr
+       where pr.role = 'customer'
+         and (
+           o.offer_type != 'birthday'
+           or (pr.birth_month = v_month and pr.birth_day = v_day)
+         )
+         and (
+              exists (select 1 from follows f where f.user_id = pr.id and f.truck_id = o.truck_id)
+              or (
+                v_truck_lat is not null and pr.home_lat is not null
+                and st_distancesphere(
+                      st_makepoint(pr.home_lng, pr.home_lat),
+                      st_makepoint(v_truck_lng, v_truck_lat)
+                    ) <= v_radius * 1609.34
+              )
+         )
+    loop
+      insert into offer_redemptions (offer_id, user_id, code, delivered_on)
+      values (
+        o.id, p.id,
+        upper(o.offer_type::text) || '-' || upper(substr(encode(gen_random_bytes(4), 'hex'), 1, 6)),
+        p_date
+      )
+      on conflict (offer_id, user_id, delivered_on) do nothing;
+
+      if found then
+        v_count := v_count + 1;
+        insert into notifications (user_id, truck_id, kind, title, body)
+        values (p.id, o.truck_id, o.offer_type::text,
+                case o.offer_type when 'birthday' then 'Happy birthday! 🎉' else o.title end,
+                o.title || ' — show your code at the window.');
+      end if;
+    end loop;
+  end loop;
+
+  return v_count;
+end;
+$$;
+
+-- new_follower offers fire the instant someone follows — can't wait a day.
+create or replace function handle_new_follow()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare o record;
+begin
+  for o in
+    select * from offers
+     where truck_id = new.truck_id
+       and offer_type = 'new_follower'
+       and active
+  loop
+    insert into offer_redemptions (offer_id, user_id, code, delivered_on)
+    values (o.id, new.user_id,
+            'WELCOME-' || upper(substr(encode(gen_random_bytes(4), 'hex'), 1, 6)),
+            current_date)
+    on conflict (offer_id, user_id, delivered_on) do nothing;
+    if found then
+      insert into notifications (user_id, truck_id, kind, title, body)
+      values (new.user_id, new.truck_id, 'new_follower', o.title,
+              o.title || ' — show your code at the window.');
+    end if;
+  end loop;
+  return new;
+end;
+$$;
+
+-- Resolves winners for a contest based on its type. Returns winner count.
+create or replace function resolve_contest_winners(p_contest uuid)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  c record;
+  v_ids uuid[];
+begin
+  select * into c from contests where id = p_contest;
+  if c is null or not owns_or_manages_truck(c.truck_id) then
+    return 0;
+  end if;
+
+  if c.type = 'first_n' then
+    select array_agg(id) into v_ids from (
+      select id from contest_entries where contest_id = p_contest
+       order by created_at asc limit coalesce(c.winner_limit, 1)
+    ) x;
+  elsif c.type = 'raffle' then
+    select array_agg(id) into v_ids from (
+      select id from contest_entries where contest_id = p_contest
+       order by random() limit coalesce(c.winner_limit, 1)
+    ) x;
+  elsif c.type = 'prediction' then
+    if c.answer is not null and c.answer ~ '^-?\d+(\.\d+)?$' then
+      select array_agg(id) into v_ids from (
+        select id from contest_entries
+         where contest_id = p_contest and entry_value ~ '^-?\d+(\.\d+)?$'
+         order by abs(entry_value::numeric - c.answer::numeric) asc
+         limit coalesce(c.winner_limit, 1)
+      ) x;
+    else
+      select array_agg(id) into v_ids
+        from contest_entries where contest_id = p_contest and entry_value = c.answer;
+    end if;
+  else
+    v_ids := '{}';
+  end if;
+
+  update contests set winner_entry_ids = coalesce(v_ids, '{}'), status = 'closed' where id = p_contest;
+  return coalesce(array_length(v_ids, 1), 0);
+end;
+$$;
+
+-- discount_codes had max_redemptions/redemptions/expires_at columns from the
+-- start, but nothing ever checked or incremented them. Still an honor-system
+-- tap by the vendor at the window (XLeats never touches payment), but now
+-- it's tracked and enforced against expiry/max-uses.
+create or replace function redeem_discount_code(p_code text, p_truck uuid)
+returns text -- 'ok' | 'not_found' | 'expired' | 'inactive' | 'maxed'
+language plpgsql security definer set search_path = public as $$
+declare d record;
+begin
+  if not owns_or_manages_truck(p_truck) then
+    return 'not_found';
+  end if;
+  select * into d from discount_codes where truck_id = p_truck and code = upper(p_code) for update;
+  if d is null then return 'not_found'; end if;
+  if not d.active then return 'inactive'; end if;
+  if d.expires_at is not null and d.expires_at < now() then return 'expired'; end if;
+  if d.max_redemptions is not null and d.redemptions >= d.max_redemptions then return 'maxed'; end if;
+  update discount_codes set redemptions = redemptions + 1 where id = d.id;
+  return 'ok';
 end;
 $$;
 
@@ -449,8 +643,8 @@ alter table live_sessions        enable row level security;
 alter table discount_codes       enable row level security;
 alter table contests             enable row level security;
 alter table contest_entries      enable row level security;
-alter table birthday_offers      enable row level security;
-alter table birthday_redemptions enable row level security;
+alter table offers               enable row level security;
+alter table offer_redemptions    enable row level security;
 alter table devices              enable row level security;
 alter table notifications        enable row level security;
 
@@ -524,14 +718,19 @@ create policy entries_select on contest_entries for select
   using (user_id = auth.uid()
          or exists (select 1 from contests c where c.id = contest_id and owns_or_manages_truck(c.truck_id)));
 
--- birthday_offers: public read (customer sees what's available), manager write
-create policy bday_offer_read  on birthday_offers for select using (active);
-create policy bday_offer_write on birthday_offers for all using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
+-- offers: public read (customer sees what's available), manager write
+create policy offer_read  on offers for select using (active);
+create policy offer_write on offers for all using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
 
--- birthday_redemptions: ONLY the customer can read their own. No truck row access.
--- Inserts happen via the service-role daily job (bypasses RLS). Redemption is
--- via redeem_birthday_code(). So no policy grants trucks row-level visibility.
-create policy bday_redeem_self on birthday_redemptions for select using (user_id = auth.uid());
+-- offer_redemptions: ONLY the customer can read their own. No truck row access.
+-- Inserts happen via the service-role daily job or the new_follow trigger
+-- (both bypass RLS). Redemption is via redeem_offer_code(). So no policy
+-- grants trucks row-level visibility.
+create policy offer_redeem_self on offer_redemptions for select using (user_id = auth.uid());
+
+-- new_follower offers fire immediately on follow, not on the daily cron.
+create trigger on_new_follow after insert on follows
+  for each row execute function handle_new_follow();
 
 -- devices / notifications: private to the user
 create policy devices_self on devices for all
