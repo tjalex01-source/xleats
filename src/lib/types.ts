@@ -23,8 +23,21 @@ export type Truck = {
   logo_url: string | null;
   banner_url: string | null;
   instagram: string | null;
+  facebook: string | null;
+  website_url: string | null;
+  phone: string | null;
+  email: string | null;
+  show_phone: boolean;
+  show_email: boolean;
   order_url: string | null;
   service_radius_miles: number;
+};
+
+export type TruckPhoto = {
+  id: string;
+  truck_id: string;
+  image_url: string;
+  sort_order: number;
 };
 
 export type MenuItem = {

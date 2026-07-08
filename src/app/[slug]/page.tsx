@@ -184,7 +184,7 @@ export default async function PublicTruckPage({
   // accounts has no public-read RLS policy, so the suspension check needs the
   // service-role client — this never reaches the browser, it only decides
   // whether the rest of the page renders.
-  const [{ data: accountRow }, { data: session }, { data: allMenuItems }, { data: schedules }, { data: posts }, { data: menuPhotos }] =
+  const [{ data: accountRow }, { data: session }, { data: allMenuItems }, { data: schedules }, { data: posts }, { data: menuPhotos }, { data: truckPhotos }] =
     await Promise.all([
       createAdminClient()
         .from('accounts')
@@ -216,6 +216,11 @@ export default async function PublicTruckPage({
         .limit(5),
       supabase
         .from('menu_photos')
+        .select('*')
+        .eq('truck_id', truck.id)
+        .order('sort_order'),
+      supabase
+        .from('truck_photos')
         .select('*')
         .eq('truck_id', truck.id)
         .order('sort_order'),
@@ -292,19 +297,56 @@ export default async function PublicTruckPage({
           <h1 className="font-display text-3xl font-extrabold">{truck.name}</h1>
           {truck.cuisine && <p className="eyebrow mt-0.5">{truck.cuisine}</p>}
         </div>
-        {truck.instagram && (
-          <a
-            href={`https://instagram.com/${truck.instagram.replace('@', '')}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ml-auto text-sm text-brand underline"
-          >
-            @{truck.instagram.replace('@', '')}
-          </a>
-        )}
+        <div className="ml-auto flex flex-col items-end gap-0.5 text-sm">
+          {truck.instagram && (
+            <a
+              href={`https://instagram.com/${truck.instagram.replace('@', '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-brand underline"
+            >
+              @{truck.instagram.replace('@', '')}
+            </a>
+          )}
+          {truck.facebook && (
+            <a
+              href={`https://facebook.com/${truck.facebook.replace('@', '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-brand underline"
+            >
+              {truck.facebook.replace('@', '')}
+            </a>
+          )}
+          {truck.website_url && (
+            <a href={truck.website_url} target="_blank" rel="noopener noreferrer" className="text-brand underline">
+              Website
+            </a>
+          )}
+        </div>
       </div>
 
-      {truck.bio && <p className="mb-6 text-muted">{truck.bio}</p>}
+      {truck.bio && <p className="mb-4 text-muted">{truck.bio}</p>}
+
+      {(truck.show_phone && truck.phone) || (truck.show_email && truck.email) ? (
+        <p className="mb-6 text-sm text-muted">
+          {truck.show_phone && truck.phone && <a href={`tel:${truck.phone}`} className="underline">{truck.phone}</a>}
+          {truck.show_phone && truck.phone && truck.show_email && truck.email && <span> · </span>}
+          {truck.show_email && truck.email && <a href={`mailto:${truck.email}`} className="underline">{truck.email}</a>}
+        </p>
+      ) : null}
+
+      {/* Customer photos */}
+      {(truckPhotos ?? []).length > 0 && (
+        <section className="mb-6 -mx-4 overflow-x-auto px-4">
+          <div className="flex gap-2">
+            {truckPhotos!.map((p) => (
+              <Image key={p.id} src={p.image_url} alt="" width={200} height={200}
+                className="h-32 w-32 shrink-0 rounded-ticket border border-edge object-cover" />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Live status */}
       <div className="mb-6">

@@ -85,6 +85,12 @@ create table trucks (
   logo_url            text,
   banner_url          text,
   instagram           text,
+  facebook            text,
+  website_url         text,
+  phone               text,
+  email               text,
+  show_phone          boolean not null default false,
+  show_email          boolean not null default false,
   order_url           text,  -- link-out to the vendor's own ordering system (Square, etc.)
   service_radius_miles int not null default 10,
   created_at          timestamptz not null default now()
@@ -145,6 +151,16 @@ create table menu_photos (
   created_at timestamptz not null default now()
 );
 create index menu_photos_truck_idx on menu_photos(truck_id);
+
+-- truck_photos: customer photos, rendered as a carousel on the public page
+create table truck_photos (
+  id         uuid primary key default gen_random_uuid(),
+  truck_id   uuid not null references trucks(id) on delete cascade,
+  image_url  text not null,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now()
+);
+create index truck_photos_truck_idx on truck_photos(truck_id);
 
 -- A day (recurring weekday or a specific one-off date) can have MULTIPLE rows
 -- — a morning spot and a different afternoon spot, or a spot plus a catering
@@ -423,6 +439,7 @@ alter table truck_members        enable row level security;
 alter table menu_items           enable row level security;
 alter table menu_item_trucks     enable row level security;
 alter table menu_photos          enable row level security;
+alter table truck_photos         enable row level security;
 alter table schedules            enable row level security;
 alter table saved_locations       enable row level security;
 alter table posts                enable row level security;
@@ -472,6 +489,9 @@ create policy menu_item_trucks_write on menu_item_trucks for all
 
 create policy menu_photos_read  on menu_photos for select using (true);
 create policy menu_photos_write on menu_photos for all
+  using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
+create policy truck_photos_read  on truck_photos for select using (true);
+create policy truck_photos_write on truck_photos for all
   using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
 create policy sched_read  on schedules  for select using (true);
 create policy sched_write on schedules  for all using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
@@ -523,10 +543,12 @@ create policy notif_self_update on notifications for update using (user_id = aut
 -- Storage buckets
 -- =============================================================================
 insert into storage.buckets (id, name, public) values
-  ('logos',       'logos',       true),
-  ('menu',        'menu',        true),  -- item photos, path: {account_id}/...
-  ('menu-photos', 'menu-photos', true),  -- whole-menu photos, path: {truck_id}/...
-  ('posts',       'posts',       true)
+  ('logos',          'logos',          true),
+  ('menu',           'menu',           true),  -- item photos, path: {account_id}/...
+  ('menu-photos',    'menu-photos',    true),  -- whole-menu photos, path: {truck_id}/...
+  ('posts',          'posts',          true),
+  ('truck-photos',   'truck-photos',   true),  -- customer photo carousel, path: {truck_id}/...
+  ('truck-branding', 'truck-branding', true)   -- logo/banner uploads, path: {truck_id}/...
 on conflict (id) do nothing;
 
 create policy menu_bucket_read on storage.objects for select
@@ -540,6 +562,18 @@ create policy menu_photos_bucket_read on storage.objects for select
 create policy menu_photos_bucket_write on storage.objects for all
   using (bucket_id = 'menu-photos' and owns_or_manages_truck(((storage.foldername(name))[1])::uuid))
   with check (bucket_id = 'menu-photos' and owns_or_manages_truck(((storage.foldername(name))[1])::uuid));
+
+create policy truck_photos_bucket_read on storage.objects for select
+  using (bucket_id = 'truck-photos');
+create policy truck_photos_bucket_write on storage.objects for all
+  using (bucket_id = 'truck-photos' and owns_or_manages_truck(((storage.foldername(name))[1])::uuid))
+  with check (bucket_id = 'truck-photos' and owns_or_manages_truck(((storage.foldername(name))[1])::uuid));
+
+create policy truck_branding_bucket_read on storage.objects for select
+  using (bucket_id = 'truck-branding');
+create policy truck_branding_bucket_write on storage.objects for all
+  using (bucket_id = 'truck-branding' and owns_or_manages_truck(((storage.foldername(name))[1])::uuid))
+  with check (bucket_id = 'truck-branding' and owns_or_manages_truck(((storage.foldername(name))[1])::uuid));
 
 -- path: {truck_id}/...
 create policy posts_bucket_read on storage.objects for select

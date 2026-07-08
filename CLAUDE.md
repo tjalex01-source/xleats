@@ -312,36 +312,37 @@ confirmed_lat, confirmed_lng, confirmed_address, catering_note
 
 ## What's stubbed / still TODO
 
-1. **Truck settings redesign (in progress)** — per-field "applies to all trucks in my fleet" checkboxes for Fleet accounts; real photo upload (in addition to or instead of URL) for logo/banner; Facebook handle alongside Instagram; website URL field; phone + email fields with a customer-visibility toggle; a customer-photo carousel for the public page. See the dedicated section below — this is the live work item.
-2. **QR flyer generator** — auto-generated, printable flyer in the dashboard with the truck's `/[slug]` QR baked in.
-3. **Manual 86/sold-out toggle surfaced on dashboard** — schema (`is_available`) already exists.
-4. **Dietary/allergy tags** on menu items.
-5. **"Limited today" count** on menu items.
-6. **Reviews — hybrid carousel** (4–5★ public, below-4★ private to vendor).
-7. **Saved offers** (reusable discount/offer templates).
-8. **Go-live birthday prompt + birthday engine** (customer birthday capture, dual-consent, daily matcher, aggregate stats to vendor) — the whole privacy-broker feature is designed but not built.
-9. **Push fan-out to followers** (new post / go-live → Expo push). `devices` table exists but isn't wired to a send path yet.
-10. **Upsell teaser engine + customer discovery filters** (quantified value-gap nudges; customer-app one-tap filters that only surface Pro+ vendors).
-11. **Expanded employee permissions** (granular `truck_members` toggles beyond `can_go_live`).
-12. **Engagement analytics layer** (profile views, follower growth, go-live frequency, redemptions, best spot by reach).
-13. **Social auto-share on go-live.**
-14. **Calendar sync** (schedule → Google Calendar).
-15. **Schedule map-pin picker** (currently address/lat/lng entry, no visual picker).
-16. **Stripe checkout** (free → pro → fleet → enterprise), 14-day Pro trial, and wiring the admin comp tool's parity with real billing once Stripe lands.
-17. **Enterprise tier** — add to `account_plan` enum + per-truck/negotiated billing model once pricing shape locks.
+1. **QR flyer generator** — auto-generated, printable flyer in the dashboard with the truck's `/[slug]` QR baked in.
+2. **Manual 86/sold-out toggle surfaced on dashboard** — schema (`is_available`) already exists.
+3. **Dietary/allergy tags** on menu items.
+4. **"Limited today" count** on menu items.
+5. **Reviews — hybrid carousel** (4–5★ public, below-4★ private to vendor).
+6. **Saved offers** (reusable discount/offer templates).
+7. **Go-live birthday prompt + birthday engine** (customer birthday capture, dual-consent, daily matcher, aggregate stats to vendor) — the whole privacy-broker feature is designed but not built.
+8. **Push fan-out to followers** (new post / go-live → Expo push). `devices` table exists but isn't wired to a send path yet.
+9. **Upsell teaser engine + customer discovery filters** (quantified value-gap nudges; customer-app one-tap filters that only surface Pro+ vendors).
+10. **Expanded employee permissions** (granular `truck_members` toggles beyond `can_go_live`).
+11. **Engagement analytics layer** (profile views, follower growth, go-live frequency, redemptions, best spot by reach).
+12. **Social auto-share on go-live.**
+13. **Calendar sync** (schedule → Google Calendar).
+14. **Schedule map-pin picker** (currently address/lat/lng entry, no visual picker).
+15. **Stripe checkout** (free → pro → fleet → enterprise), 14-day Pro trial, and wiring the admin comp tool's parity with real billing once Stripe lands.
+16. **Enterprise tier** — add to `account_plan` enum + per-truck/negotiated billing model once pricing shape locks.
 
 ---
 
-## In progress right now: Truck Settings page redesign
+## Truck Settings page redesign — built
 
-T.J. noticed the account-level settings (`/dashboard/settings` — name, login/profile) and the truck-level settings (`/dashboard/trucks/[truckId]/settings` — `TruckSettingsForm`) are two different pages and wants the truck-level one expanded. Agreed direction, not yet built:
+T.J. noticed the account-level settings (`/dashboard/settings` — name, login/profile) and the truck-level settings (`/dashboard/trucks/[truckId]/settings` — `TruckSettingsForm`) are two different pages and wanted the truck-level one expanded. All of the below shipped in one pass (migration: `supabase/truck_settings_expansion.sql`):
 
-- **Fleet "apply to all trucks" checkboxes** — for `fleet`-tier accounts, each relevant field on `TruckSettingsForm` (cuisine, bio, socials, order_url, etc.) gets an optional "apply to all my trucks" checkbox so a Fleet vendor doesn't retype the same info per truck. This is a *different* mechanism from the menu's `applies_to_all_trucks` sync — settings fields are a one-time copy-to-all-trucks action, not a live-synced reference (a logo can differ per truck later even if copied in at set-up time), unless T.J. decides otherwise.
-- **Logo/banner: add real upload, likely alongside the existing URL field** rather than replacing it (some vendors already have a hosted image URL from Instagram/their existing site; others have nothing and need to upload from their phone). Uses the same Storage-bucket-with-folder-RLS pattern already proven for menu photos and posts.
-- **Facebook handle** field alongside the existing Instagram handle.
-- **Website URL** field (optional).
-- **Phone + email fields**, each with its own **customer-visibility toggle** — these are the contact details shown on the public `/[slug]` page to customers searching for the truck, separate from the account owner's login email.
-- **Customer-photo carousel** — vendor uploads photos of customers enjoying their food; renders as a carousel on the public page. New Storage bucket + table, same RLS pattern as menu_photos/posts.
+- **Fleet "apply to all trucks" checkboxes** — for `fleet`-tier accounts, each relevant field on `TruckSettingsForm` (cuisine, bio, logo, banner, instagram, facebook, website, phone, email, order_url) has an optional "Apply to all my trucks" checkbox. This is a **one-time copy-to-all-trucks action on save**, not a live-synced reference like the menu's `applies_to_all_trucks` — a vendor can copy a logo to every truck today and still change one truck's logo independently tomorrow. Implemented client-side: build a patch of only the checked fields, then `update(...).in('id', siblingTruckIds)`. Checkboxes only render when the account is `fleet` and has sibling trucks.
+- **Logo/banner: both URL and real upload** — `TruckSettingsForm` keeps the existing URL text field and adds a file input next to it (uploads to the new `truck-branding` bucket, folder-keyed by `truck_id`, same RLS pattern as menu-photos/posts). Whichever was set most recently wins.
+- **Facebook handle** field alongside Instagram, both rendered top-right on the public page.
+- **Website URL** field (optional, auto-prefixed `https://` like `order_url`), rendered as a "Website" link.
+- **Phone + email fields** on `trucks`, each with its own **`show_phone`/`show_email` visibility toggle** — only shown to customers on the public `/[slug]` page when the vendor explicitly opts in. Separate from the account owner's login email.
+- **Customer-photo carousel** — new `truck_photos` table + `truck-photos` Storage bucket (same RLS pattern as `menu_photos`). Vendor uploads/deletes photos from the settings page; they render as a horizontal-scroll carousel near the top of the public page.
+
+Verified live: ran the migration via CLI, confirmed the storage buckets/RLS actually accept an authenticated-style upload (curl PUT with the service key), rendered `xands-bbq`'s public page with test facebook/website/phone/email/photos filled in, confirmed everything displayed correctly (including the phone/email visibility gating), then reverted all test data.
 
 ---
 
