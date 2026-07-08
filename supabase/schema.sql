@@ -190,6 +190,23 @@ create table posts (
 create index posts_truck_idx on posts(truck_id, created_at desc);
 
 -- ----------------------------------------------------------------------------
+-- catering_requests  (public marketing CTA submissions — no login required)
+-- ----------------------------------------------------------------------------
+create table catering_requests (
+  id             uuid primary key default gen_random_uuid(),
+  truck_id       uuid not null references trucks(id) on delete cascade,
+  requester_name text not null,
+  email          text not null,
+  phone          text,
+  event_date     date not null,
+  headcount      int,
+  location       text,
+  note           text,
+  created_at     timestamptz not null default now()
+);
+create index catering_requests_truck_idx on catering_requests(truck_id);
+
+-- ----------------------------------------------------------------------------
 -- follows  (customer → truck).  Rows are private to the customer.
 -- Trucks read follower COUNTS via a function, never the rows.
 -- ----------------------------------------------------------------------------
@@ -409,6 +426,7 @@ alter table menu_photos          enable row level security;
 alter table schedules            enable row level security;
 alter table saved_locations       enable row level security;
 alter table posts                enable row level security;
+alter table catering_requests    enable row level security;
 alter table follows              enable row level security;
 alter table live_sessions        enable row level security;
 alter table discount_codes       enable row level security;
@@ -461,6 +479,10 @@ create policy saved_locations_manage on saved_locations for all
   using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
 create policy posts_read  on posts      for select using (true);
 create policy posts_write on posts      for all using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
+
+-- catering_requests: public can submit (no login), only the truck's manager can read them.
+create policy catering_requests_insert on catering_requests for insert with check (true);
+create policy catering_requests_read   on catering_requests for select using (owns_or_manages_truck(truck_id));
 
 -- follows: private to the customer. Trucks use truck_follower_count().
 create policy follows_self on follows for all
