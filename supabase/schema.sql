@@ -22,7 +22,7 @@ create type account_plan  as enum ('free', 'pro', 'fleet');
 create type member_role   as enum ('owner', 'manager', 'worker');
 create type live_status   as enum ('live', 'scheduled', 'catering', 'off', 'closed');
 create type discount_type as enum ('percent', 'amount', 'free_item');
-create type contest_type  as enum ('count', 'prediction', 'first_n', 'raffle', 'manual');
+create type contest_type  as enum ('count', 'prediction', 'first_n', 'raffle', 'manual', 'milestone');
 create type offer_type    as enum ('birthday', 'holiday', 'new_follower', 'custom');
 
 -- ----------------------------------------------------------------------------
@@ -294,17 +294,22 @@ create table contests (
   closes_at        timestamptz,
   answer           text,                            -- e.g. final score for a prediction
   winner_limit     int,                             -- # of winners for first_n / raffle
-  winner_note      text,                            -- freeform winner for 'manual' contests
+  winner_note      text,                            -- freeform winner for 'manual'/'milestone' contests
   winner_entry_ids uuid[] not null default '{}',     -- resolved winners for first_n/raffle/prediction
+  target_count     int,                              -- milestone: which customer # wins (e.g. 100)
+  tap_count        int not null default 0,           -- milestone: live counter, vendor taps after each sale
+  winner_user_id   uuid references profiles(id),      -- nullable; reserved for a future customer-app self-claim flow
   created_at       timestamptz not null default now()
 );
 
 create table contest_entries (
-  id          uuid primary key default gen_random_uuid(),
-  contest_id  uuid not null references contests(id) on delete cascade,
-  user_id     uuid not null references profiles(id) on delete cascade,
-  entry_value text,
-  created_at  timestamptz not null default now(),
+  id               uuid primary key default gen_random_uuid(),
+  contest_id       uuid not null references contests(id) on delete cascade,
+  user_id          uuid not null references profiles(id) on delete cascade,
+  entry_value      text,
+  redemption_code  text,       -- stamped on winning entries so they can claim a prize at the window later
+  redeemed_at      timestamptz,
+  created_at       timestamptz not null default now(),
   unique (contest_id, user_id)
 );
 
@@ -452,7 +457,7 @@ $$;
 -- NOT handled here — see handle_new_follow() below.
 create or replace function generate_scheduled_offers(p_date date default current_date)
 returns int
-language plpgsql security definer set search_path = public, postgis as $$
+language plpgsql security definer set search_path = public, postgis, extensions as $$
 declare
   v_month int := extract(month from p_date)::int;
   v_day   int := extract(day   from p_date)::int;
@@ -533,7 +538,7 @@ $$;
 
 -- new_follower offers fire the instant someone follows — can't wait a day.
 create or replace function handle_new_follow()
-returns trigger language plpgsql security definer set search_path = public as $$
+returns trigger language plpgsql security definer set search_path = public, extensions as $$
 declare o record;
 begin
   for o in
@@ -560,7 +565,7 @@ $$;
 -- Resolves winners for a contest based on its type. Returns winner count.
 create or replace function resolve_contest_winners(p_contest uuid)
 returns int
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare
   c record;
   v_ids uuid[];
@@ -597,8 +602,84 @@ begin
   end if;
 
   update contests set winner_entry_ids = coalesce(v_ids, '{}'), status = 'closed' where id = p_contest;
+
+  -- Stamp a claim code on winning entries so they can be verified at the
+  -- window later, same pattern as offer codes.
+  if v_ids is not null and array_length(v_ids, 1) > 0 then
+    update contest_entries
+       set redemption_code = 'WIN-' || upper(substr(encode(gen_random_bytes(4), 'hex'), 1, 6))
+     where id = any(v_ids) and redemption_code is null;
+  end if;
+
   return coalesce(array_length(v_ids, 1), 0);
 end;
+$$;
+
+-- Vendor taps this after every sale while a milestone ("Nth customer")
+-- contest is running. Auto-closes the contest the instant the target is
+-- hit — the vendor then separately records the winner's name/photo as a
+-- normal post + truck_photos write (no entries exist for this type; there's
+-- no way to know in advance who the physical Nth customer will be).
+create or replace function bump_contest_tap_count(p_contest uuid)
+returns table (tap_count int, target_count int, reached boolean)
+language plpgsql security definer set search_path = public as $$
+declare
+  c record;
+  v_new_count int;
+begin
+  select * into c from contests where id = p_contest and type = 'milestone';
+  if c is null or not owns_or_manages_truck(c.truck_id) then
+    raise exception 'not found';
+  end if;
+
+  update contests set tap_count = contests.tap_count + 1
+   where id = p_contest
+   returning contests.tap_count into v_new_count;
+
+  tap_count := v_new_count;
+  target_count := c.target_count;
+  reached := v_new_count >= coalesce(c.target_count, 999999999);
+
+  if reached then
+    update contests set status = 'closed' where id = p_contest and status = 'open';
+  end if;
+  return next;
+end;
+$$;
+
+-- Worker verifies a prediction/first_n/raffle winner's claim code at the window.
+create or replace function redeem_contest_code(p_code text, p_truck uuid)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare hit int;
+begin
+  if not owns_or_manages_truck(p_truck) then
+    return false;
+  end if;
+  update contest_entries e
+     set redeemed_at = now()
+    from contests c
+   where c.id = e.contest_id
+     and c.truck_id = p_truck
+     and e.redemption_code = p_code
+     and e.redeemed_at is null;
+  get diagnostics hit = row_count;
+  return hit > 0;
+end;
+$$;
+
+-- Public, first-name-ONLY winner readout for the public truck page — never
+-- exposes anything else from the winning customer's profile. Only returns
+-- rows for CLOSED contests.
+create or replace function contest_winner_first_names(p_contest uuid)
+returns table (entry_id uuid, first_name text)
+language sql security definer stable set search_path = public as $$
+  select ce.id, split_part(pr.display_name, ' ', 1)
+    from contest_entries ce
+    join profiles pr on pr.id = ce.user_id
+    join contests c on c.id = ce.contest_id
+   where c.id = p_contest
+     and c.status = 'closed'
+     and ce.id = any(c.winner_entry_ids);
 $$;
 
 -- discount_codes had max_redemptions/redemptions/expires_at columns from the

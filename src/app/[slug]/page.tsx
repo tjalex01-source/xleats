@@ -184,7 +184,7 @@ export default async function PublicTruckPage({
   // accounts has no public-read RLS policy, so the suspension check needs the
   // service-role client — this never reaches the browser, it only decides
   // whether the rest of the page renders.
-  const [{ data: accountRow }, { data: session }, { data: allMenuItems }, { data: schedules }, { data: posts }, { data: menuPhotos }, { data: truckPhotos }] =
+  const [{ data: accountRow }, { data: session }, { data: allMenuItems }, { data: schedules }, { data: posts }, { data: menuPhotos }, { data: truckPhotos }, { data: closedContests }] =
     await Promise.all([
       createAdminClient()
         .from('accounts')
@@ -224,10 +224,33 @@ export default async function PublicTruckPage({
         .select('*')
         .eq('truck_id', truck.id)
         .order('sort_order'),
+      supabase
+        .from('contests')
+        .select('id, type, title, winner_note, winner_entry_ids')
+        .eq('truck_id', truck.id)
+        .eq('status', 'closed')
+        .order('created_at', { ascending: false })
+        .limit(5),
     ]);
 
   if (accountRow?.suspended) notFound();
   const isFreePlan = (accountRow?.plan ?? 'free') === 'free';
+
+  // Contest winner announcements — first name ONLY, via a SECURITY DEFINER
+  // function. manual/milestone contests already store a freeform winner_note
+  // the vendor typed themselves (no profile lookup needed for those).
+  const winnerAnnouncements: { id: string; title: string; text: string }[] = [];
+  for (const c of closedContests ?? []) {
+    if ((c.type === 'manual' || c.type === 'milestone') && c.winner_note) {
+      winnerAnnouncements.push({ id: c.id, title: c.title, text: `${c.winner_note} won: ${c.title}!` });
+    } else if ((c.winner_entry_ids ?? []).length > 0) {
+      const { data: names } = await supabase.rpc('contest_winner_first_names', { p_contest: c.id });
+      const firstNames = (names ?? []).map((n: { first_name: string }) => n.first_name).filter(Boolean);
+      if (firstNames.length > 0) {
+        winnerAnnouncements.push({ id: c.id, title: c.title, text: `${firstNames.join(' & ')} won: ${c.title}!` });
+      }
+    }
+  }
 
   // menu_items are account-scoped and may apply to all trucks or a specific
   // subset — resolve which ones actually show on THIS truck.
@@ -441,6 +464,17 @@ export default async function PublicTruckPage({
           </div>
         )}
       </section>
+
+      {/* Contest winners — first name only, never anything else about the customer */}
+      {winnerAnnouncements.length > 0 && (
+        <section className="mb-6 space-y-2">
+          {winnerAnnouncements.map((w) => (
+            <div key={w.id} className="rounded-ticket border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+              🎉 {w.text}
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* Menu */}
       <section className="mb-6">

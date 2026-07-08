@@ -2,7 +2,7 @@ export type LiveStatus = 'live' | 'scheduled' | 'catering' | 'off' | 'closed';
 export type AccountPlan = 'free' | 'pro' | 'fleet';
 export type DiscountType = 'percent' | 'amount' | 'free_item';
 export type OfferType = 'birthday' | 'holiday' | 'new_follower' | 'custom';
-export type ContestType = 'count' | 'prediction' | 'first_n' | 'raffle' | 'manual';
+export type ContestType = 'count' | 'prediction' | 'first_n' | 'raffle' | 'manual' | 'milestone';
 
 export type Account = {
   id: string;
@@ -119,6 +119,10 @@ export type Contest = {
   winner_limit: number | null;
   winner_note: string | null;
   winner_entry_ids: string[];
+  target_count: number | null;
+  tap_count: number;
+  winner_user_id: string | null;
+  created_at: string;
 };
 
 export type ContestEntry = {
@@ -126,7 +130,14 @@ export type ContestEntry = {
   contest_id: string;
   user_id: string;
   entry_value: string | null;
+  redemption_code: string | null;
+  redeemed_at: string | null;
   created_at: string;
+};
+
+export type ContestWinnerName = {
+  entry_id: string;
+  first_name: string;
 };
 
 export type LiveSession = {

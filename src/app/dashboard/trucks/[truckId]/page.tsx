@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import StatusControl from '@/components/StatusControl';
+import MilestoneContest from '@/components/MilestoneContest';
 
 export default async function TruckHub({ params }: { params: Promise<{ truckId: string }> }) {
   const { truckId } = await params;
@@ -37,6 +38,7 @@ export default async function TruckHub({ params }: { params: Promise<{ truckId: 
       <div className="mt-5">
         <div className="eyebrow mb-2">Today’s status</div>
         <StatusControl truckId={truck.id} initial={session ?? null} />
+        <MilestoneContest truckId={truck.id} truckName={truck.name} />
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-3">

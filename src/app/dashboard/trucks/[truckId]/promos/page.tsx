@@ -5,14 +5,15 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import type {
   AccountPlan, DiscountCode, DiscountType, Offer, OfferType, OfferStat,
-  Contest, ContestType, ContestEntry,
+  Contest, ContestType, ContestEntry, ContestWinnerName,
 } from '@/lib/types';
 
 const OFFER_TYPE_LABEL: Record<OfferType, string> = {
   birthday: 'Birthday', holiday: 'Holiday / seasonal', new_follower: 'Welcome new follower', custom: 'Custom date',
 };
 const CONTEST_TYPE_LABEL: Record<ContestType, string> = {
-  count: 'Count (legacy)', prediction: 'Prediction', first_n: 'First to enter', raffle: 'Raffle drawing', manual: 'Manual / social',
+  count: 'Count (legacy)', prediction: 'Prediction', first_n: 'First to enter', raffle: 'Raffle drawing',
+  manual: 'Manual / social', milestone: 'Nth customer (live counter)',
 };
 const DISCOUNT_TYPE_LABEL: Record<DiscountType, string> = {
   percent: '% off', amount: '$ off', free_item: 'Free item',
@@ -57,9 +58,13 @@ export default function Promos() {
   const [contestPrize, setContestPrize] = useState('');
   const [contestCloses, setContestCloses] = useState('');
   const [contestWinnerLimit, setContestWinnerLimit] = useState('1');
+  const [contestTargetCount, setContestTargetCount] = useState('100');
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   const [winnerNoteDrafts, setWinnerNoteDrafts] = useState<Record<string, string>>({});
   const [winnerEntries, setWinnerEntries] = useState<Record<string, ContestEntry[]>>({});
+  const [winnerNames, setWinnerNames] = useState<Record<string, ContestWinnerName[]>>({});
+  const [redeemContestCodeInput, setRedeemContestCodeInput] = useState('');
+  const [redeemContestMsg, setRedeemContestMsg] = useState<string | null>(null);
 
   async function load() {
     const { data: truck } = await supabase.from('trucks')
@@ -94,6 +99,18 @@ export default function Promos() {
           grouped[e.contest_id] = [...(grouped[e.contest_id] ?? []), e];
         }
         setWinnerEntries(grouped);
+      }
+
+      const closedWithWinners = (c ?? []).filter((x) => x.status === 'closed' && (x.winner_entry_ids ?? []).length > 0);
+      if (closedWithWinners.length > 0) {
+        const results = await Promise.all(
+          closedWithWinners.map((x) => supabase.rpc('contest_winner_first_names', { p_contest: x.id }))
+        );
+        const namesMap: Record<string, ContestWinnerName[]> = {};
+        closedWithWinners.forEach((x, i) => {
+          namesMap[x.id] = (results[i].data as ContestWinnerName[]) ?? [];
+        });
+        setWinnerNames(namesMap);
       }
     }
   }
@@ -175,10 +192,20 @@ export default function Promos() {
       title: contestTitle,
       description: contestDesc || null,
       prize: contestPrize || null,
-      closes_at: contestCloses ? new Date(contestCloses).toISOString() : null,
+      closes_at: contestType === 'manual' || contestType === 'milestone'
+        ? null : (contestCloses ? new Date(contestCloses).toISOString() : null),
       winner_limit: contestType === 'first_n' || contestType === 'raffle' ? Number(contestWinnerLimit) || 1 : null,
+      target_count: contestType === 'milestone' ? Number(contestTargetCount) || 100 : null,
     });
-    setContestTitle(''); setContestDesc(''); setContestPrize(''); setContestCloses(''); setContestWinnerLimit('1');
+    setContestTitle(''); setContestDesc(''); setContestPrize(''); setContestCloses('');
+    setContestWinnerLimit('1'); setContestTargetCount('100');
+    load();
+  }
+  async function redeemContest() {
+    if (!redeemContestCodeInput) return;
+    const { data } = await supabase.rpc('redeem_contest_code', { p_code: redeemContestCodeInput.toUpperCase(), p_truck: truckId });
+    setRedeemContestMsg(data ? 'Redeemed!' : 'Code not found, already used, or invalid.');
+    setRedeemContestCodeInput('');
     load();
   }
   async function saveAnswer(id: string) {
@@ -288,6 +315,12 @@ export default function Promos() {
           </div>
           {redeemDiscMsg && <p className="mt-1 text-xs text-muted">{redeemDiscMsg}</p>}
         </div>
+
+        <p className="mt-3 rounded-lg bg-cream p-2 text-xs text-muted">
+          Reminder: this code is redeemed in person at your window — XLeats never touches payment.
+          If you want customers to be able to use it for online orders too, add the same code as a
+          real discount in Square (or whatever you use to take online orders) — it doesn&rsquo;t sync automatically.
+        </p>
       </section>
 
       {/* Offers — birthday, holiday, welcome, custom */}
@@ -395,24 +428,28 @@ export default function Promos() {
 
         <div className="space-y-2">
           <select className={`${inputCls} w-full`} value={contestType} onChange={(e) => setContestType(e.target.value as ContestType)}>
-            {(['prediction', 'first_n', 'raffle', 'manual'] as ContestType[]).map((t) => (
+            {(['prediction', 'first_n', 'raffle', 'manual', 'milestone'] as ContestType[]).map((t) => (
               <option key={t} value={t}>{CONTEST_TYPE_LABEL[t]}</option>
             ))}
           </select>
-          <input className={`${inputCls} w-full`} placeholder="Title (e.g. Guess the Cowboys score)"
+          <input className={`${inputCls} w-full`} placeholder={contestType === 'milestone' ? 'Title (e.g. 100th Customer of the Day)' : 'Title (e.g. Guess the Cowboys score)'}
             value={contestTitle} onChange={(e) => setContestTitle(e.target.value)} />
           <input className={`${inputCls} w-full`} placeholder="Description (optional)"
             value={contestDesc} onChange={(e) => setContestDesc(e.target.value)} />
           <input className={`${inputCls} w-full`} placeholder="Prize (optional)"
             value={contestPrize} onChange={(e) => setContestPrize(e.target.value)} />
           <div className="flex gap-2">
-            {contestType !== 'manual' && (
+            {contestType !== 'manual' && contestType !== 'milestone' && (
               <input type="datetime-local" className={inputCls} placeholder="Closes at"
                 value={contestCloses} onChange={(e) => setContestCloses(e.target.value)} />
             )}
             {usesWinnerLimit && (
               <input className={inputCls} placeholder="# of winners" inputMode="numeric"
                 value={contestWinnerLimit} onChange={(e) => setContestWinnerLimit(e.target.value)} />
+            )}
+            {contestType === 'milestone' && (
+              <input className={inputCls} placeholder="Which customer # wins (e.g. 100)" inputMode="numeric"
+                value={contestTargetCount} onChange={(e) => setContestTargetCount(e.target.value)} />
             )}
           </div>
           {contestType === 'manual' && (
@@ -421,12 +458,22 @@ export default function Promos() {
               and record the winner below once you&rsquo;ve picked one.
             </p>
           )}
+          {contestType === 'milestone' && (
+            <p className="text-xs text-muted">
+              Once created, a big counter button shows up on your truck&rsquo;s main page — tap it after
+              every sale. When you hit the target, confetti flies and you can announce the winner as a
+              post with a photo. There&rsquo;s no way to know in advance whether the winning customer
+              follows you, so this can&rsquo;t auto-notify their phone — you record who won by hand, right there.
+            </p>
+          )}
           <button onClick={addContest} className="w-full rounded-lg bg-brand py-2 font-display font-bold text-white">Create contest</button>
         </div>
 
         <div className="mt-4 space-y-3">
           {contests.map((c) => {
             const winners = winnerEntries[c.id] ?? [];
+            const names = winnerNames[c.id] ?? [];
+            const nameFor = (entryId: string) => names.find((n) => n.entry_id === entryId)?.first_name;
             return (
               <div key={c.id} className="rounded-lg border border-edge p-3">
                 <div className="flex items-center justify-between">
@@ -441,7 +488,12 @@ export default function Promos() {
                   </div>
                 </div>
 
-                {c.type !== 'manual' && (
+                {c.type === 'milestone' ? (
+                  <div className="mt-1 text-xs text-muted">
+                    {c.tap_count} / {c.target_count} tapped
+                    {c.status === 'open' && ' — tap the counter on your truck’s main page after each sale'}
+                  </div>
+                ) : c.type !== 'manual' && (
                   <div className="mt-1 text-xs text-muted">{entryCounts[c.id] ?? 0} entries</div>
                 )}
 
@@ -471,15 +523,31 @@ export default function Promos() {
                 {c.status === 'closed' && (
                   <div className="mt-2 text-sm">
                     <span className="font-semibold">Winner: </span>
-                    {c.type === 'manual'
-                      ? (c.winner_note || '—')
-                      : winners.length > 0 ? winners.map((w) => w.entry_value).join(', ') : 'No entries'}
+                    {c.type === 'manual' || c.type === 'milestone'
+                      ? (c.winner_note || 'Not recorded')
+                      : winners.length > 0
+                        ? winners.map((w) => {
+                            const first = nameFor(w.id);
+                            return c.type === 'prediction' && w.entry_value
+                              ? `${first ?? '—'} (guessed ${w.entry_value})`
+                              : (first ?? '—');
+                          }).join(', ')
+                        : 'No entries'}
                   </div>
                 )}
               </div>
             );
           })}
           {contests.length === 0 && <p className="text-sm text-muted">No contests yet.</p>}
+        </div>
+
+        <div className="mt-4 border-t border-edge pt-3">
+          <label className="mb-1 block text-xs font-semibold text-muted">Redeem a winner&rsquo;s code at the window</label>
+          <div className="flex gap-2">
+            <input className={`${inputCls} flex-1 uppercase`} value={redeemContestCodeInput} onChange={(e) => setRedeemContestCodeInput(e.target.value)} />
+            <button onClick={redeemContest} className="rounded-lg bg-ink px-4 font-display font-bold text-white">Redeem</button>
+          </div>
+          {redeemContestMsg && <p className="mt-1 text-xs text-muted">{redeemContestMsg}</p>}
         </div>
       </section>
     </div>
