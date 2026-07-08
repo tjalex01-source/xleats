@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import type {
   AccountPlan, DiscountCode, DiscountType, Offer, OfferType, OfferStat,
-  Contest, ContestType, ContestEntry, ContestWinnerName,
+  Contest, ContestType, ContestEntry, ContestWinnerName, PromoBlast,
 } from '@/lib/types';
 
 const OFFER_TYPE_LABEL: Record<OfferType, string> = {
@@ -20,21 +20,48 @@ const DISCOUNT_TYPE_LABEL: Record<DiscountType, string> = {
 };
 const inputCls = 'rounded-lg border border-edge px-3 py-2 outline-none focus:border-brand';
 
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+function fmtDateTime(iso: string) {
+  return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function discBlastMessage(d: { code: string; type: DiscountType; value: number | null; description: string | null; expires_at: string | null }) {
+  const discountText = d.type === 'percent' ? `${d.value}% off`
+    : d.type === 'amount' ? `$${d.value} off`
+    : (d.description || 'a free item');
+  return `🎉 New code ${d.code}: ${discountText}!${d.description ? ` ${d.description}.` : ''}${d.expires_at ? ` Ends ${fmtDate(d.expires_at)}.` : ''}`;
+}
+
+type BlastModalState = { kind: 'discount_code' | 'offer' | 'contest'; blastId: string; defaultMessage: string } | null;
+
 export default function Promos() {
   const { truckId } = useParams<{ truckId: string }>();
   const supabase = createClient();
   const [plan, setPlan] = useState<AccountPlan | null>(null);
+  const [accountId, setAccountId] = useState<string | null>(null);
+  const [isFleet, setIsFleet] = useState(false);
+  const [siblingTruckIds, setSiblingTruckIds] = useState<string[]>([]);
+  const [blasts, setBlasts] = useState<Record<string, PromoBlast>>({});
+
+  // Blast modal (shared across all 3 sections)
+  const [blastModal, setBlastModal] = useState<BlastModalState>(null);
+  const [blastMsg, setBlastMsg] = useState('');
+  const [blastMode, setBlastMode] = useState<'now' | 'schedule'>('now');
+  const [blastScheduleAt, setBlastScheduleAt] = useState('');
 
   // Discount codes
   const [discs, setDiscs] = useState<DiscountCode[]>([]);
+  const [editingDiscId, setEditingDiscId] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [discType, setDiscType] = useState<DiscountType>('percent');
   const [discValue, setDiscValue] = useState('');
   const [discDesc, setDiscDesc] = useState('');
   const [discMax, setDiscMax] = useState('');
+  const [discStarts, setDiscStarts] = useState('');
   const [discExpires, setDiscExpires] = useState('');
-  const [redeemDiscCode, setRedeemDiscCode] = useState('');
-  const [redeemDiscMsg, setRedeemDiscMsg] = useState<string | null>(null);
+  const [discApplyAll, setDiscApplyAll] = useState(false);
+  const [redeemMsgByRow, setRedeemMsgByRow] = useState<Record<string, string>>({});
 
   // Offers
   const [offers, setOffers] = useState<Offer[]>([]);
@@ -46,6 +73,7 @@ export default function Promos() {
   const [triggerMonth, setTriggerMonth] = useState('');
   const [triggerDay, setTriggerDay] = useState('');
   const [triggerDate, setTriggerDate] = useState('');
+  const [offerApplyAll, setOfferApplyAll] = useState(false);
   const [redeemOfferCode, setRedeemOfferCode] = useState('');
   const [redeemOfferMsg, setRedeemOfferMsg] = useState<string | null>(null);
 
@@ -59,6 +87,7 @@ export default function Promos() {
   const [contestCloses, setContestCloses] = useState('');
   const [contestWinnerLimit, setContestWinnerLimit] = useState('1');
   const [contestTargetCount, setContestTargetCount] = useState('100');
+  const [contestApplyAll, setContestApplyAll] = useState(false);
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   const [winnerNoteDrafts, setWinnerNoteDrafts] = useState<Record<string, string>>({});
   const [winnerEntries, setWinnerEntries] = useState<Record<string, ContestEntry[]>>({});
@@ -69,8 +98,16 @@ export default function Promos() {
   async function load() {
     const { data: truck } = await supabase.from('trucks')
       .select('account_id, accounts(plan)').eq('id', truckId).single();
+    const accId: string | null = truck?.account_id ?? null;
     // @ts-expect-error nested select typing
-    setPlan(truck?.accounts?.plan ?? 'free');
+    const planVal: AccountPlan = truck?.accounts?.plan ?? 'free';
+    setAccountId(accId);
+    setPlan(planVal);
+    setIsFleet(planVal === 'fleet');
+    if (accId) {
+      const { data: sibs } = await supabase.from('trucks').select('id').eq('account_id', accId).neq('id', truckId);
+      setSiblingTruckIds((sibs ?? []).map((s) => s.id));
+    }
 
     const { data: d } = await supabase.from('discount_codes').select('*').eq('truck_id', truckId).order('created_at', { ascending: false });
     setDiscs((d as DiscountCode[]) ?? []);
@@ -84,6 +121,19 @@ export default function Promos() {
 
     const { data: c } = await supabase.from('contests').select('*').eq('truck_id', truckId).order('created_at', { ascending: false });
     setContests((c as Contest[]) ?? []);
+
+    const blastIds = [
+      ...(d ?? []).map((x) => x.blast_id),
+      ...(o ?? []).map((x) => x.blast_id),
+      ...(c ?? []).map((x) => x.blast_id),
+    ].filter((x): x is string => !!x);
+    if (blastIds.length > 0) {
+      const { data: blastRows } = await supabase.from('promo_blasts').select('*').in('id', Array.from(new Set(blastIds)));
+      const map: Record<string, PromoBlast> = {};
+      for (const b of (blastRows as PromoBlast[]) ?? []) map[b.id] = b;
+      setBlasts(map);
+    }
+
     const contestIds = (c ?? []).map((x) => x.id);
     if (contestIds.length > 0) {
       const { data: entries } = await supabase.from('contest_entries').select('id, contest_id').in('contest_id', contestIds);
@@ -116,19 +166,67 @@ export default function Promos() {
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [truckId]);
 
+  // --- Blast (shared) -------------------------------------------------------
+  function openBlast(kind: 'discount_code' | 'offer' | 'contest', blastId: string, defaultMessage: string) {
+    setBlastModal({ kind, blastId, defaultMessage });
+    setBlastMsg(defaultMessage);
+    setBlastMode('now');
+    setBlastScheduleAt('');
+  }
+  async function confirmBlast() {
+    if (!blastModal) return;
+    if (blastMode === 'now') {
+      await supabase.from('promo_blasts').update({ message: blastMsg }).eq('id', blastModal.blastId);
+      await supabase.rpc('send_promo_blast', { p_blast: blastModal.blastId });
+    } else {
+      await supabase.from('promo_blasts').update({
+        message: blastMsg,
+        scheduled_at: blastScheduleAt ? new Date(blastScheduleAt).toISOString() : null,
+      }).eq('id', blastModal.blastId);
+    }
+    setBlastModal(null);
+    load();
+  }
+  async function cancelSchedule(blastId: string) {
+    await supabase.from('promo_blasts').update({ scheduled_at: null }).eq('id', blastId);
+    load();
+  }
+
   // --- Discount codes ---------------------------------------------------
-  async function addDiscount() {
-    if (!code) return;
-    await supabase.from('discount_codes').insert({
-      truck_id: truckId,
+  function resetDiscForm() {
+    setEditingDiscId(null);
+    setCode(''); setDiscValue(''); setDiscDesc(''); setDiscMax('');
+    setDiscStarts(''); setDiscExpires(''); setDiscApplyAll(false);
+  }
+  function startEditDisc(d: DiscountCode) {
+    setEditingDiscId(d.id);
+    setCode(d.code); setDiscType(d.type);
+    setDiscValue(d.value != null ? String(d.value) : '');
+    setDiscDesc(d.description ?? ''); setDiscMax(d.max_redemptions != null ? String(d.max_redemptions) : '');
+    setDiscStarts(d.starts_at ? d.starts_at.slice(0, 10) : '');
+    setDiscExpires(d.expires_at ? d.expires_at.slice(0, 10) : '');
+  }
+  async function saveDiscount() {
+    if (!code || !accountId) return;
+    const patch = {
       code: code.toUpperCase(),
       type: discType,
       value: discType === 'free_item' ? null : (discValue ? Number(discValue) : null),
       description: discDesc || null,
       max_redemptions: discMax ? Number(discMax) : null,
+      starts_at: discStarts ? new Date(discStarts).toISOString() : null,
       expires_at: discExpires ? new Date(discExpires).toISOString() : null,
-    });
-    setCode(''); setDiscValue(''); setDiscDesc(''); setDiscMax(''); setDiscExpires('');
+    };
+    if (editingDiscId) {
+      await supabase.from('discount_codes').update(patch).eq('id', editingDiscId);
+    } else {
+      const targetTruckIds = (isFleet && discApplyAll) ? [truckId, ...siblingTruckIds] : [truckId];
+      const { data: blast } = await supabase.from('promo_blasts')
+        .insert({ account_id: accountId, kind: 'discount_code' }).select().single();
+      const rows = targetTruckIds.map((tid) => ({ ...patch, truck_id: tid, blast_id: blast?.id ?? null }));
+      await supabase.from('discount_codes').insert(rows);
+    }
+    resetDiscForm();
     load();
   }
   async function toggleDiscount(d: DiscountCode) {
@@ -139,32 +237,40 @@ export default function Promos() {
     await supabase.from('discount_codes').delete().eq('id', id);
     load();
   }
-  async function redeemDiscount() {
-    if (!redeemDiscCode) return;
-    const { data } = await supabase.rpc('redeem_discount_code', { p_code: redeemDiscCode.toUpperCase(), p_truck: truckId });
+  async function refreshDisc(d: DiscountCode) {
+    await supabase.from('discount_codes').update({ active: true, blast_id: null }).eq('id', d.id);
+    startEditDisc(d);
+    load();
+  }
+  async function redeemDiscountRow(d: DiscountCode) {
+    const { data } = await supabase.rpc('redeem_discount_code', { p_code: d.code, p_truck: truckId });
     const messages: Record<string, string> = {
       ok: 'Redeemed!', not_found: 'Code not found.', expired: 'That code has expired.',
       inactive: 'That code is paused.', maxed: 'That code has hit its redemption limit.',
     };
-    setRedeemDiscMsg(messages[data as string] ?? 'Something went wrong.');
-    setRedeemDiscCode('');
+    setRedeemMsgByRow((prev) => ({ ...prev, [d.id]: messages[data as string] ?? 'Something went wrong.' }));
     load();
   }
 
   // --- Offers -------------------------------------------------------------
   async function addOffer() {
-    if (!offerTitle) return;
+    if (!offerTitle || !accountId) return;
     const usesTrigger = offerType === 'holiday' || offerType === 'custom';
-    await supabase.from('offers').insert({
-      truck_id: truckId,
+    const targetTruckIds = (isFleet && offerApplyAll) ? [truckId, ...siblingTruckIds] : [truckId];
+    const { data: blast } = await supabase.from('promo_blasts')
+      .insert({ account_id: accountId, kind: 'offer' }).select().single();
+    const rows = targetTruckIds.map((tid) => ({
+      truck_id: tid,
       offer_type: offerType,
       title: offerTitle,
       description: offerDesc || null,
       trigger_month: usesTrigger && triggerMode === 'annual' && triggerMonth ? Number(triggerMonth) : null,
       trigger_day: usesTrigger && triggerMode === 'annual' && triggerDay ? Number(triggerDay) : null,
       trigger_date: usesTrigger && triggerMode === 'once' && triggerDate ? triggerDate : null,
-    });
-    setOfferTitle(''); setOfferDesc(''); setTriggerMonth(''); setTriggerDay(''); setTriggerDate('');
+      blast_id: blast?.id ?? null,
+    }));
+    await supabase.from('offers').insert(rows);
+    setOfferTitle(''); setOfferDesc(''); setTriggerMonth(''); setTriggerDay(''); setTriggerDate(''); setOfferApplyAll(false);
     load();
   }
   async function toggleOffer(o: Offer) {
@@ -185,9 +291,12 @@ export default function Promos() {
 
   // --- Contests -------------------------------------------------------------
   async function addContest() {
-    if (!contestTitle) return;
-    await supabase.from('contests').insert({
-      truck_id: truckId,
+    if (!contestTitle || !accountId) return;
+    const targetTruckIds = (isFleet && contestApplyAll) ? [truckId, ...siblingTruckIds] : [truckId];
+    const { data: blast } = await supabase.from('promo_blasts')
+      .insert({ account_id: accountId, kind: 'contest' }).select().single();
+    const rows = targetTruckIds.map((tid) => ({
+      truck_id: tid,
       type: contestType,
       title: contestTitle,
       description: contestDesc || null,
@@ -196,9 +305,11 @@ export default function Promos() {
         ? null : (contestCloses ? new Date(contestCloses).toISOString() : null),
       winner_limit: contestType === 'first_n' || contestType === 'raffle' ? Number(contestWinnerLimit) || 1 : null,
       target_count: contestType === 'milestone' ? Number(contestTargetCount) || 100 : null,
-    });
+      blast_id: blast?.id ?? null,
+    }));
+    await supabase.from('contests').insert(rows);
     setContestTitle(''); setContestDesc(''); setContestPrize(''); setContestCloses('');
-    setContestWinnerLimit('1'); setContestTargetCount('100');
+    setContestWinnerLimit('1'); setContestTargetCount('100'); setContestApplyAll(false);
     load();
   }
   async function redeemContest() {
@@ -252,6 +363,7 @@ export default function Promos() {
 
   const usesTrigger = offerType === 'holiday' || offerType === 'custom';
   const usesWinnerLimit = contestType === 'first_n' || contestType === 'raffle';
+  const canApplyAll = isFleet && siblingTruckIds.length > 0;
 
   return (
     <div className="space-y-6">
@@ -278,42 +390,83 @@ export default function Promos() {
             placeholder="Description (e.g. Free medium drink)" value={discDesc} onChange={(e) => setDiscDesc(e.target.value)} />
           <input className={inputCls} placeholder="Max redemptions (optional)" inputMode="numeric"
             value={discMax} onChange={(e) => setDiscMax(e.target.value)} />
-          <input type="date" className={inputCls} placeholder="Expires (optional)"
-            value={discExpires} onChange={(e) => setDiscExpires(e.target.value)} />
+          <div className="col-span-2 grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-xs text-muted">Start date (optional)</label>
+              <input type="date" className={`${inputCls} w-full`} value={discStarts} onChange={(e) => setDiscStarts(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-muted">End date (optional)</label>
+              <input type="date" className={`${inputCls} w-full`} value={discExpires} onChange={(e) => setDiscExpires(e.target.value)} />
+            </div>
+          </div>
         </div>
-        <button onClick={addDiscount} className="mt-2 w-full rounded-lg bg-brand py-2 font-display font-bold text-white">Add code</button>
+        {canApplyAll && !editingDiscId && (
+          <label className="mt-2 flex items-center gap-1.5 text-xs text-muted">
+            <input type="checkbox" checked={discApplyAll} onChange={(e) => setDiscApplyAll(e.target.checked)} />
+            Apply to all my trucks
+          </label>
+        )}
+        <div className="mt-2 flex gap-2">
+          <button onClick={saveDiscount} className="flex-1 rounded-lg bg-brand py-2 font-display font-bold text-white">
+            {editingDiscId ? 'Save changes' : 'Add code'}
+          </button>
+          {editingDiscId && <button onClick={resetDiscForm} className="rounded-lg border border-edge px-4 text-sm font-semibold">Cancel</button>}
+        </div>
 
         <div className="mt-4 space-y-2">
-          {discs.map((d) => (
-            <div key={d.id} className="flex items-center justify-between rounded-lg border border-edge p-2 text-sm">
-              <div>
-                <span className="font-mono font-bold">{d.code}</span>
-                <span className="ml-2 text-muted">
-                  {d.type === 'percent' && `${d.value}% off`}
-                  {d.type === 'amount' && `$${d.value} off`}
-                  {d.type === 'free_item' && (d.description || 'Free item')}
-                </span>
-                <span className="ml-2 text-xs text-muted">
-                  {d.redemptions}{d.max_redemptions ? `/${d.max_redemptions}` : ''} used
-                  {!d.active && ' · paused'}
-                  {d.expires_at && new Date(d.expires_at) < new Date() && ' · expired'}
-                </span>
+          {discs.map((d) => {
+            const blast = d.blast_id ? blasts[d.blast_id] : null;
+            const isSent = !!blast?.sent_at;
+            const isScheduled = !!blast?.scheduled_at && !isSent;
+            const isEnded = !!d.expires_at && new Date(d.expires_at) < new Date();
+            return (
+              <div key={d.id} className="rounded-lg border border-edge p-3 text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="font-mono font-bold">{d.code}</span>
+                    <span className="ml-2 text-muted">
+                      {d.type === 'percent' && `${d.value}% off`}
+                      {d.type === 'amount' && `$${d.value} off`}
+                      {d.type === 'free_item' && 'Free item'}
+                    </span>
+                    {d.description && <div className="mt-0.5 text-xs text-muted">{d.description}</div>}
+                    <div className="mt-1 text-xs text-muted">
+                      {d.starts_at ? `From ${fmtDate(d.starts_at)}` : 'Starts immediately'}
+                      {' – '}{d.expires_at ? fmtDate(d.expires_at) : 'no end date'}
+                      {' · '}{d.redemptions}{d.max_redemptions ? `/${d.max_redemptions}` : ''} used
+                      {!d.active && ' · paused'}
+                      {isEnded && ' · ended'}
+                    </div>
+                    {isSent && blast && <div className="mt-1 text-xs text-green-700">Sent {fmtDateTime(blast.sent_at!)}</div>}
+                    {isScheduled && blast && (
+                      <div className="mt-1 text-xs text-amber-700">
+                        Scheduled for {fmtDateTime(blast.scheduled_at!)}{' '}
+                        <button onClick={() => cancelSchedule(d.blast_id!)} className="underline">Cancel</button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <button onClick={() => redeemDiscountRow(d)} className="rounded-lg bg-ink px-3 py-1 text-xs font-semibold text-white">Redeem</button>
+                    <div className="flex gap-2 text-xs font-semibold">
+                      {!isSent && <button onClick={() => startEditDisc(d)} className="text-brand">Edit</button>}
+                      <button onClick={() => toggleDiscount(d)} className="text-brand">{d.active ? 'Pause' : 'Resume'}</button>
+                      <button onClick={() => deleteDiscount(d.id)} className="text-muted">Delete</button>
+                    </div>
+                    {!isSent && !isScheduled && d.blast_id && (
+                      <button onClick={() => openBlast('discount_code', d.blast_id!, discBlastMessage(d))}
+                        className="rounded-lg border border-brand px-3 py-1 text-xs font-semibold text-brand">Blast</button>
+                    )}
+                    {isEnded && (
+                      <button onClick={() => refreshDisc(d)} className="rounded-lg border border-edge px-3 py-1 text-xs font-semibold">Refresh</button>
+                    )}
+                  </div>
+                </div>
+                {redeemMsgByRow[d.id] && <p className="mt-1 text-xs text-muted">{redeemMsgByRow[d.id]}</p>}
               </div>
-              <div className="flex gap-3 text-xs font-semibold">
-                <button onClick={() => toggleDiscount(d)} className="text-brand">{d.active ? 'Pause' : 'Resume'}</button>
-                <button onClick={() => deleteDiscount(d.id)} className="text-muted">Delete</button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-4 border-t border-edge pt-3">
-          <label className="mb-1 block text-xs font-semibold text-muted">Redeem a code at the window</label>
-          <div className="flex gap-2">
-            <input className={`${inputCls} flex-1 uppercase`} value={redeemDiscCode} onChange={(e) => setRedeemDiscCode(e.target.value)} />
-            <button onClick={redeemDiscount} className="rounded-lg bg-ink px-4 font-display font-bold text-white">Redeem</button>
-          </div>
-          {redeemDiscMsg && <p className="mt-1 text-xs text-muted">{redeemDiscMsg}</p>}
+            );
+          })}
+          {discs.length === 0 && <p className="text-sm text-muted">No discount codes yet.</p>}
         </div>
 
         <p className="mt-3 rounded-lg bg-cream p-2 text-xs text-muted">
@@ -333,7 +486,7 @@ export default function Promos() {
 
         <div className="space-y-2">
           <select className={`${inputCls} w-full`} value={offerType} onChange={(e) => setOfferType(e.target.value as OfferType)}>
-            {(Object.keys(OFFER_TYPE_LABEL) as OfferType[]).filter((t) => t !== 'custom' || true).map((t) => (
+            {(Object.keys(OFFER_TYPE_LABEL) as OfferType[]).map((t) => (
               <option key={t} value={t}>{OFFER_TYPE_LABEL[t]}</option>
             ))}
           </select>
@@ -376,6 +529,12 @@ export default function Promos() {
           {offerType === 'birthday' && (
             <p className="text-xs text-muted">Sent automatically to any customer whose birthday is today.</p>
           )}
+          {canApplyAll && (
+            <label className="flex items-center gap-1.5 text-xs text-muted">
+              <input type="checkbox" checked={offerApplyAll} onChange={(e) => setOfferApplyAll(e.target.checked)} />
+              Apply to all my trucks
+            </label>
+          )}
 
           <button onClick={addOffer} className="w-full rounded-lg bg-brand py-2 font-display font-bold text-white">Create offer</button>
         </div>
@@ -383,6 +542,9 @@ export default function Promos() {
         <div className="mt-4 space-y-2">
           {offers.map((o) => {
             const s = offerStats[o.id];
+            const blast = o.blast_id ? blasts[o.blast_id] : null;
+            const isSent = !!blast?.sent_at;
+            const isScheduled = !!blast?.scheduled_at && !isSent;
             return (
               <div key={o.id} className="rounded-lg border border-edge p-3">
                 <div className="flex items-center justify-between">
@@ -390,12 +552,25 @@ export default function Promos() {
                     <span className="rounded-full bg-cream px-2 py-0.5 text-xs font-semibold text-muted">{OFFER_TYPE_LABEL[o.offer_type]}</span>
                     <div className="mt-1 font-semibold">{o.title}</div>
                   </div>
-                  <div className="flex gap-3 text-xs font-semibold">
-                    <button onClick={() => toggleOffer(o)} className="text-brand">{o.active ? 'Pause' : 'Resume'}</button>
-                    <button onClick={() => deleteOffer(o.id)} className="text-muted">Delete</button>
+                  <div className="flex flex-col items-end gap-1">
+                    <div className="flex gap-3 text-xs font-semibold">
+                      <button onClick={() => toggleOffer(o)} className="text-brand">{o.active ? 'Pause' : 'Resume'}</button>
+                      <button onClick={() => deleteOffer(o.id)} className="text-muted">Delete</button>
+                    </div>
+                    {!isSent && !isScheduled && o.blast_id && (
+                      <button onClick={() => openBlast('offer', o.blast_id!, `🎉 New: ${o.title}! ${o.description ?? ''}`.trim())}
+                        className="rounded-lg border border-brand px-3 py-1 text-xs font-semibold text-brand">Blast</button>
+                    )}
                   </div>
                 </div>
                 {!o.active && <p className="mt-1 text-xs text-muted">Paused — not being sent right now.</p>}
+                {isSent && blast && <p className="mt-1 text-xs text-green-700">Announced {fmtDateTime(blast.sent_at!)}</p>}
+                {isScheduled && blast && (
+                  <p className="mt-1 text-xs text-amber-700">
+                    Scheduled for {fmtDateTime(blast.scheduled_at!)}{' '}
+                    <button onClick={() => cancelSchedule(o.blast_id!)} className="underline">Cancel</button>
+                  </p>
+                )}
                 {s && (
                   <div className="mt-2 flex gap-6">
                     <div><div className="font-display text-xl font-extrabold">{s.delivered}</div><div className="eyebrow">delivered</div></div>
@@ -422,8 +597,8 @@ export default function Promos() {
       <section className="rounded-ticket border border-edge bg-white p-4 shadow-ticket">
         <div className="eyebrow mb-2">Contests</div>
         <p className="mb-3 text-sm text-muted">
-          Predictions, first-to-enter, raffle drawings, or a manual/social contest you run yourself
-          (like an Instagram photo contest) and just record the winner here.
+          Predictions, first-to-enter, raffle drawings, a live Nth-customer counter, or a manual/social
+          contest you run yourself (like an Instagram photo contest) and just record the winner here.
         </p>
 
         <div className="space-y-2">
@@ -466,6 +641,12 @@ export default function Promos() {
               follows you, so this can&rsquo;t auto-notify their phone — you record who won by hand, right there.
             </p>
           )}
+          {canApplyAll && (
+            <label className="flex items-center gap-1.5 text-xs text-muted">
+              <input type="checkbox" checked={contestApplyAll} onChange={(e) => setContestApplyAll(e.target.checked)} />
+              Apply to all my trucks{contestType === 'milestone' ? ' (each truck gets its own counter)' : ''}
+            </label>
+          )}
           <button onClick={addContest} className="w-full rounded-lg bg-brand py-2 font-display font-bold text-white">Create contest</button>
         </div>
 
@@ -474,6 +655,9 @@ export default function Promos() {
             const winners = winnerEntries[c.id] ?? [];
             const names = winnerNames[c.id] ?? [];
             const nameFor = (entryId: string) => names.find((n) => n.entry_id === entryId)?.first_name;
+            const blast = c.blast_id ? blasts[c.blast_id] : null;
+            const isSent = !!blast?.sent_at;
+            const isScheduled = !!blast?.scheduled_at && !isSent;
             return (
               <div key={c.id} className="rounded-lg border border-edge p-3">
                 <div className="flex items-center justify-between">
@@ -482,11 +666,25 @@ export default function Promos() {
                     <div className="mt-1 font-semibold">{c.title}</div>
                     {c.prize && <div className="text-xs text-muted">Prize: {c.prize}</div>}
                   </div>
-                  <div className="flex gap-3 text-xs font-semibold">
-                    <span className="text-muted">{c.status}</span>
-                    <button onClick={() => deleteContest(c.id)} className="text-muted">Delete</button>
+                  <div className="flex flex-col items-end gap-1">
+                    <div className="flex gap-3 text-xs font-semibold">
+                      <span className="text-muted">{c.status}</span>
+                      <button onClick={() => deleteContest(c.id)} className="text-muted">Delete</button>
+                    </div>
+                    {!isSent && !isScheduled && c.blast_id && (
+                      <button onClick={() => openBlast('contest', c.blast_id!, `🎉 New contest: ${c.title}! ${c.description ?? ''}`.trim())}
+                        className="rounded-lg border border-brand px-3 py-1 text-xs font-semibold text-brand">Blast</button>
+                    )}
                   </div>
                 </div>
+
+                {isSent && blast && <p className="mt-1 text-xs text-green-700">Announced {fmtDateTime(blast.sent_at!)}</p>}
+                {isScheduled && blast && (
+                  <p className="mt-1 text-xs text-amber-700">
+                    Scheduled for {fmtDateTime(blast.scheduled_at!)}{' '}
+                    <button onClick={() => cancelSchedule(c.blast_id!)} className="underline">Cancel</button>
+                  </p>
+                )}
 
                 {c.type === 'milestone' ? (
                   <div className="mt-1 text-xs text-muted">
@@ -550,6 +748,38 @@ export default function Promos() {
           {redeemContestMsg && <p className="mt-1 text-xs text-muted">{redeemContestMsg}</p>}
         </div>
       </section>
+
+      {/* Blast review modal */}
+      {blastModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-ticket bg-white p-5 shadow-ticket">
+            <h2 className="font-display text-xl font-extrabold">Review & send</h2>
+            <p className="mt-1 text-xs text-muted">
+              Goes out to your followers, plus nearby customers who&rsquo;ve opted in to hear from trucks
+              they don&rsquo;t follow yet — take a second look before it sends.
+            </p>
+            <textarea className={`${inputCls} mt-3 w-full`} rows={3} value={blastMsg} onChange={(e) => setBlastMsg(e.target.value)} />
+            <div className="mt-3 flex gap-4 text-sm">
+              <label className="flex items-center gap-1.5">
+                <input type="radio" checked={blastMode === 'now'} onChange={() => setBlastMode('now')} /> Send now
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input type="radio" checked={blastMode === 'schedule'} onChange={() => setBlastMode('schedule')} /> Schedule for later
+              </label>
+            </div>
+            {blastMode === 'schedule' && (
+              <input type="datetime-local" className={`${inputCls} mt-2 w-full`}
+                value={blastScheduleAt} onChange={(e) => setBlastScheduleAt(e.target.value)} />
+            )}
+            <div className="mt-4 flex gap-2">
+              <button onClick={() => setBlastModal(null)} className="flex-1 rounded-lg border border-edge py-2 text-sm font-semibold">Cancel</button>
+              <button onClick={confirmBlast} className="flex-1 rounded-lg bg-brand py-2 font-display font-bold text-white">
+                {blastMode === 'now' ? 'Send now' : 'Schedule'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

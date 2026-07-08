@@ -83,8 +83,11 @@ export type DiscountCode = {
   description: string | null;
   max_redemptions: number | null;
   redemptions: number;
+  starts_at: string | null;
   expires_at: string | null;
   active: boolean;
+  blast_id: string | null;
+  created_at: string;
 };
 
 export type Offer = {
@@ -98,6 +101,17 @@ export type Offer = {
   trigger_day: number | null;
   trigger_date: string | null;
   active: boolean;
+  blast_id: string | null;
+};
+
+export type PromoBlast = {
+  id: string;
+  account_id: string;
+  kind: 'discount_code' | 'offer' | 'contest';
+  message: string | null;
+  scheduled_at: string | null;
+  sent_at: string | null;
+  created_at: string;
 };
 
 export type OfferStat = {
@@ -122,6 +136,7 @@ export type Contest = {
   target_count: number | null;
   tap_count: number;
   winner_user_id: string | null;
+  blast_id: string | null;
   created_at: string;
 };
 

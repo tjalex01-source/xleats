@@ -184,7 +184,7 @@ export default async function PublicTruckPage({
   // accounts has no public-read RLS policy, so the suspension check needs the
   // service-role client — this never reaches the browser, it only decides
   // whether the rest of the page renders.
-  const [{ data: accountRow }, { data: session }, { data: allMenuItems }, { data: schedules }, { data: posts }, { data: menuPhotos }, { data: truckPhotos }, { data: closedContests }] =
+  const [{ data: accountRow }, { data: session }, { data: allMenuItems }, { data: schedules }, { data: posts }, { data: menuPhotos }, { data: truckPhotos }, { data: closedContests }, { data: allDiscountCodes }] =
     await Promise.all([
       createAdminClient()
         .from('accounts')
@@ -231,10 +231,24 @@ export default async function PublicTruckPage({
         .eq('status', 'closed')
         .order('created_at', { ascending: false })
         .limit(5),
+      supabase
+        .from('discount_codes')
+        .select('*, promo_blasts(sent_at)')
+        .eq('truck_id', truck.id)
+        .eq('active', true),
     ]);
 
   if (accountRow?.suspended) notFound();
   const isFreePlan = (accountRow?.plan ?? 'free') === 'free';
+
+  // Specials & Promos — only actually-blasted codes, within their active window.
+  const nowMs = Date.now();
+  const activeSpecials = (allDiscountCodes ?? []).filter((d) => {
+    if (!d.promo_blasts?.sent_at) return false;
+    if (d.starts_at && new Date(d.starts_at).getTime() > nowMs) return false;
+    if (d.expires_at && new Date(d.expires_at).getTime() < nowMs) return false;
+    return true;
+  });
 
   // Contest winner announcements — first name ONLY, via a SECURITY DEFINER
   // function. manual/milestone contests already store a freeform winner_note
@@ -382,6 +396,31 @@ export default async function PublicTruckPage({
           updatedAt={session?.started_at ?? new Date().toISOString()}
         />
       </div>
+
+      {/* Specials & Promos */}
+      {activeSpecials.length > 0 && (
+        <section className="mb-6">
+          <h2 className="eyebrow mb-3">Specials & Promos</h2>
+          <div className="space-y-2">
+            {activeSpecials.map((d) => (
+              <div key={d.id} className="rounded-ticket border border-amber-200 bg-amber-50 p-3">
+                <div className="flex items-baseline justify-between">
+                  <span className="font-display font-bold text-amber-800">
+                    {d.type === 'percent' && `${d.value}% off`}
+                    {d.type === 'amount' && `$${d.value} off`}
+                    {d.type === 'free_item' && (d.description || 'Free item')}
+                  </span>
+                  {d.expires_at && (
+                    <span className="text-xs text-amber-700">Ends {new Date(d.expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                  )}
+                </div>
+                {d.type !== 'free_item' && d.description && <p className="text-sm text-amber-700">{d.description}</p>}
+                <p className="mt-1 text-xs text-amber-700">Mention code <span className="font-mono font-bold">{d.code}</span> at the window.</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Schedule */}
       <section className="mb-6">

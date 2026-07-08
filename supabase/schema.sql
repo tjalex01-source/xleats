@@ -40,6 +40,8 @@ create table profiles (
   zip          text,
   home_lat     double precision,
   home_lng     double precision,
+  allow_offers_from_followed boolean not null default true,   -- offers/blasts from trucks they follow
+  allow_offers_from_nearby   boolean not null default false,   -- offers/blasts from nearby trucks they don't follow
   created_at   timestamptz not null default now()
 );
 
@@ -268,6 +270,19 @@ $$;
 -- ----------------------------------------------------------------------------
 -- discount_codes / contests / contest_entries   (Pro tier)
 -- ----------------------------------------------------------------------------
+-- One row per "campaign" — created alongside a discount code / offer /
+-- contest (or a group of them, for a Fleet-wide apply), sent at most once.
+-- Referenced by discount_codes/offers/contests below.
+create table promo_blasts (
+  id            uuid primary key default gen_random_uuid(),
+  account_id    uuid not null references accounts(id) on delete cascade,
+  kind          text not null check (kind in ('discount_code', 'offer', 'contest')),
+  message       text,               -- customer-facing wording; editable until sent
+  scheduled_at  timestamptz,        -- null = send immediately when triggered
+  sent_at       timestamptz,
+  created_at    timestamptz not null default now()
+);
+
 create table discount_codes (
   id              uuid primary key default gen_random_uuid(),
   truck_id        uuid not null references trucks(id) on delete cascade,
@@ -277,8 +292,10 @@ create table discount_codes (
   description     text,
   max_redemptions int,
   redemptions     int not null default 0,
+  starts_at       timestamptz,       -- null = usable immediately
   expires_at      timestamptz,
   active          boolean not null default true,
+  blast_id        uuid references promo_blasts(id) on delete set null,
   created_at      timestamptz not null default now(),
   unique (truck_id, code)
 );
@@ -299,6 +316,7 @@ create table contests (
   target_count     int,                              -- milestone: which customer # wins (e.g. 100)
   tap_count        int not null default 0,           -- milestone: live counter, vendor taps after each sale
   winner_user_id   uuid references profiles(id),      -- nullable; reserved for a future customer-app self-claim flow
+  blast_id         uuid references promo_blasts(id) on delete set null,
   created_at       timestamptz not null default now()
 );
 
@@ -334,6 +352,7 @@ create table offers (
   trigger_day   int check (trigger_day between 1 and 31),
   trigger_date  date,                                        -- holiday/custom: one-time date
   active        boolean not null default true,
+  blast_id      uuid references promo_blasts(id) on delete set null,
   created_at    timestamptz not null default now()
 );
 
@@ -504,14 +523,14 @@ begin
            or (pr.birth_month = v_month and pr.birth_day = v_day)
          )
          and (
-              exists (select 1 from follows f where f.user_id = pr.id and f.truck_id = o.truck_id)
-              or (
-                v_truck_lat is not null and pr.home_lat is not null
-                and st_distancesphere(
-                      st_makepoint(pr.home_lng, pr.home_lat),
-                      st_makepoint(v_truck_lng, v_truck_lat)
-                    ) <= v_radius * 1609.34
-              )
+              (pr.allow_offers_from_followed and exists (
+                 select 1 from follows f where f.user_id = pr.id and f.truck_id = o.truck_id
+               ))
+           or (pr.allow_offers_from_nearby and v_truck_lat is not null and pr.home_lat is not null
+               and st_distancesphere(
+                     st_makepoint(pr.home_lng, pr.home_lat),
+                     st_makepoint(v_truck_lng, v_truck_lat)
+                   ) <= v_radius * 1609.34)
          )
     loop
       insert into offer_redemptions (offer_id, user_id, code, delivered_on)
@@ -704,6 +723,100 @@ begin
 end;
 $$;
 
+-- Internal: does the actual matching + notification insert + marks sent.
+-- No owner-auth check here — only called from send_promo_blast() (vendor,
+-- checked) or process_due_blasts() (service-role cron, trusted context).
+create or replace function _deliver_promo_blast(p_blast uuid)
+returns int
+language plpgsql security definer set search_path = public, postgis as $$
+declare
+  b record;
+  v_truck_ids uuid[];
+  v_count int := 0;
+  v_user record;
+begin
+  select * into b from promo_blasts where id = p_blast;
+  if b is null or b.sent_at is not null then
+    return 0;
+  end if;
+
+  if b.kind = 'discount_code' then
+    select array_agg(distinct truck_id) into v_truck_ids from discount_codes where blast_id = p_blast;
+  elsif b.kind = 'offer' then
+    select array_agg(distinct truck_id) into v_truck_ids from offers where blast_id = p_blast;
+  else
+    select array_agg(distinct truck_id) into v_truck_ids from contests where blast_id = p_blast;
+  end if;
+
+  if v_truck_ids is null or array_length(v_truck_ids, 1) = 0 then
+    update promo_blasts set sent_at = now() where id = p_blast;
+    return 0;
+  end if;
+
+  for v_user in
+    select distinct pr.id
+      from profiles pr
+     where pr.role = 'customer'
+       and (
+            (pr.allow_offers_from_followed and exists (
+               select 1 from follows f where f.user_id = pr.id and f.truck_id = any(v_truck_ids)
+             ))
+         or (pr.allow_offers_from_nearby and pr.home_lat is not null and exists (
+               select 1
+                 from trucks t
+                 join schedules s on s.truck_id = t.id
+                where t.id = any(v_truck_ids)
+                  and s.lat is not null
+                  and st_distancesphere(
+                        st_makepoint(pr.home_lng, pr.home_lat),
+                        st_makepoint(s.lng, s.lat)
+                      ) <= coalesce(t.service_radius_miles, 10) * 1609.34
+             ))
+       )
+  loop
+    insert into notifications (user_id, truck_id, kind, title, body)
+    values (v_user.id, v_truck_ids[1], 'promo_blast', 'New promo!',
+            coalesce(b.message, 'Check out a new promo from a truck you follow.'));
+    v_count := v_count + 1;
+  end loop;
+
+  update promo_blasts set sent_at = now() where id = p_blast;
+  return v_count;
+end;
+$$;
+
+-- Vendor-triggered "send now" (or "send" after confirming a schedule) —
+-- owner-checked entry point.
+create or replace function send_promo_blast(p_blast uuid)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare b record;
+begin
+  select * into b from promo_blasts where id = p_blast;
+  if b is null or not owns_or_manages_account(b.account_id) then
+    return 0;
+  end if;
+  return _deliver_promo_blast(p_blast);
+end;
+$$;
+
+-- Cron entry point: fires any blast whose scheduled time has arrived.
+create or replace function process_due_blasts()
+returns int
+language plpgsql security definer set search_path = public as $$
+declare v_count int := 0; b record;
+begin
+  for b in
+    select id from promo_blasts
+     where sent_at is null and scheduled_at is not null and scheduled_at <= now()
+  loop
+    perform _deliver_promo_blast(b.id);
+    v_count := v_count + 1;
+  end loop;
+  return v_count;
+end;
+$$;
+
 -- =============================================================================
 -- Row Level Security
 -- =============================================================================
@@ -722,6 +835,7 @@ alter table catering_requests    enable row level security;
 alter table follows              enable row level security;
 alter table live_sessions        enable row level security;
 alter table discount_codes       enable row level security;
+alter table promo_blasts         enable row level security;
 alter table contests             enable row level security;
 alter table contest_entries      enable row level security;
 alter table offers               enable row level security;
@@ -790,6 +904,12 @@ create policy live_write on live_sessions for all using (can_post_live(truck_id)
 -- discount_codes / contests: public read, manager write
 create policy disc_read  on discount_codes for select using (active);
 create policy disc_write on discount_codes for all using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
+
+create policy promo_blasts_manage on promo_blasts for all
+  using (owns_or_manages_account(account_id)) with check (owns_or_manages_account(account_id));
+-- Public can read the message/sent_at of a blast ONCE it's actually sent (so
+-- the public page can show blasted specials) — drafts/scheduled stay private.
+create policy promo_blasts_public_read on promo_blasts for select using (sent_at is not null);
 create policy contest_read  on contests for select using (true);
 create policy contest_write on contests for all using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
 
