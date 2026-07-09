@@ -72,6 +72,7 @@ create table accounts (
   name               text not null,
   plan               account_plan not null default 'free',
   stripe_customer_id text,
+  stripe_subscription_id text,
   created_at         timestamptz not null default now()
 );
 

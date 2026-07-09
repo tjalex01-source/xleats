@@ -83,9 +83,9 @@ export default function Stats() {
             Track your follower growth, how often you go live, and how many discount codes and
             offers are getting redeemed — so you can double down on what brings customers in.
           </p>
-          <button className="mt-5 rounded-lg bg-brand px-6 py-3 font-display font-bold text-white">
+          <Link href="/dashboard/billing" className="mt-5 inline-block rounded-lg bg-brand px-6 py-3 font-display font-bold text-white">
             Upgrade to Pro
-          </button>
+          </Link>
         </div>
       </div>
     );

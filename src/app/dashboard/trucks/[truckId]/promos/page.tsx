@@ -353,9 +353,9 @@ export default function Promos() {
             Discount codes, contests, and automatic birthday/holiday offers — delivered to your
             followers and nearby customers without ever handing you their personal details.
           </p>
-          <button className="mt-5 rounded-lg bg-brand px-6 py-3 font-display font-bold text-white">
+          <Link href="/dashboard/billing" className="mt-5 inline-block rounded-lg bg-brand px-6 py-3 font-display font-bold text-white">
             Upgrade to Pro
-          </button>
+          </Link>
         </div>
       </div>
     );

@@ -358,8 +358,8 @@ For **prediction / first_n / raffle** contests (the ones with real `contest_entr
 10. **Social auto-share on go-live.**
 11. **Calendar sync** (schedule → Google Calendar).
 12. **Schedule map-pin picker** (currently structured address + geocode, no visual pin-drop picker).
-13. **Stripe checkout** (free → pro → fleet → enterprise), 14-day Pro trial, and wiring the admin comp tool's parity with real billing once Stripe lands.
-14. **Enterprise tier** — add to `account_plan` enum + per-truck/negotiated billing model once pricing shape locks.
+13. **14-day Pro trial** — not yet wired into checkout (Stripe supports `trial_period_days`; add when desired). Also not yet built: annual Fleet pricing (Fleet is monthly-only for now), and truck-*removal* quantity sync (adding a Fleet truck re-meters Stripe; removing one doesn't yet — slight overcharge until the next add).
+14. **Enterprise tier** — `account_plan` enum still has no `enterprise` value; it's a "contact us" mailto on the billing page today, no self-serve checkout. Add the enum value + per-truck/negotiated billing model when a real Enterprise deal justifies it.
 15. **The native customer app itself** — signup, follow, birthday capture, push tokens. Everything above in "Promos page — built" is real but inert until this ships; T.J.'s stated next major phase after the vendor web app is done.
 
 ---
@@ -402,6 +402,22 @@ Verified live with the real Google API key: geocoded a real Tyler, TX address th
 - **Data source notes**: go-lives count `live_sessions` rows with `started_at` set (not `status='live'`, since the expire cron flips finished sessions back to `off` — counting current status would undercount). Everything is real, live-computable data. Deliberately NOT included: profile/page views (nothing counts a `/[slug]` visit — see TODO) and any revenue/best-seller stat (no ordering system, by design).
 
 Verified live with a disposable Fleet account seeded with follows/go-lives/posts/redemptions spread across several weeks: every headline number and weekly bar matched the seed exactly, and the Fleet comparison table rendered both trucks. Test data deleted afterward.
+
+---
+
+## Stripe billing — built (test mode; live cutover is T.J.'s step)
+
+Real self-serve subscriptions replacing the admin-comp workaround. `/dashboard/billing` is the hub (Free upgrade CTAs across Promos/Stats/new-truck all route here).
+
+- **Tiers (T.J.'s decision)**: Free / Pro ($20/mo or $200/yr, 1 truck) / Fleet ($15/truck/mo, **min 2** so Pro stays the cheapest single-truck option) / Enterprise (a "contact us" mailto — no self-serve, `account_plan` enum has no `enterprise` value yet).
+- **Products/prices** created by `scripts/stripe-setup.mjs` (idempotent via lookup_key; run once per Stripe mode). Each price carries metadata `xleats_plan=pro|fleet`, which is how the sync logic maps a subscription back to `accounts.plan`. Price IDs live in env (`STRIPE_PRICE_PRO_MONTHLY/PRO_ANNUAL/FLEET_MONTHLY`).
+- **Routes** (`src/app/api/stripe/*`): `checkout` (creates customer if needed + Checkout Session; Fleet quantity = `max(truckCount, 2)`), `portal` (Stripe Billing Portal for card/cancel), `sync` (reconciles plan from live Stripe state — called on checkout return so the happy path never waits on a webhook), `sync-quantity` (re-meters Fleet quantity after a truck is added), `webhook` (safety net for out-of-band changes: portal cancellations, failed renewals). Shared logic: `syncCustomerPlan(customerId)` in `src/lib/stripe.ts`, used by both `sync` and `webhook`.
+- **Plan storage**: `accounts.stripe_customer_id` (existed) + new `accounts.stripe_subscription_id`. On an active/trialing sub, sync sets `plan` from price metadata and clears `plan_expires_at` (so a formerly-comped account that starts paying isn't wrongly downgraded by the `plan-expire` cron — Stripe accounts always have `plan_expires_at = null`). On no active sub, reverts to `free`.
+- **The `stripe` npm package was added** — this is the one place a new dependency is correct (vs. the no-dep convention elsewhere).
+
+**Env / go-live (T.J.'s steps, no access from here):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and the three price IDs must be added to Vercel. For live mode: run `scripts/stripe-setup.mjs` with the **live** secret key to get live price IDs, create a webhook endpoint in the Stripe dashboard pointing at `https://xleats.com/api/stripe/webhook` and copy its signing secret into `STRIPE_WEBHOOK_SECRET`. Everything shipped so far was built and verified against **test mode**.
+
+**Verified live (test mode) via the Stripe API against the real checkout-created customer** (the preview sandbox blocks navigating to Stripe's hosted card page, but that page is Stripe's own UI — every line of *our* path was exercised): Pro subscribe → sync → `plan=pro` + subscription id stored + `plan_expires_at` cleared; cancel → sync → back to `free` (the webhook's downgrade path); Fleet subscribe qty 2 → `plan=fleet`; add trucks (→3) → `sync-quantity` → Stripe billed quantity updated to 3. All test data (Stripe customer/subs, DB rows, auth user) deleted afterward.
 
 ---
 
@@ -449,10 +465,10 @@ Accounts needed later (customer app phase): Expo/EAS, Apple Developer ($99/yr), 
 
 ## Recommended next-task order
 
-All five dashboard sections (Promos, Menu, Schedule, Posts, Settings) are now built and reviewed. T.J.'s stated direction: payment links, then the customer-facing app.
+All five dashboard sections (Promos, Menu, Schedule, Posts, Settings), the Stats page, and Stripe billing are now built. T.J.'s stated direction: payment links (done), then the customer-facing app.
 
-1. **Stats page** — cheap, already-designed, strengthens the Pro/Fleet pitch right before billing turns on.
-2. **Stripe checkout** — the literal next step T.J. named ("payment links"); turns on real free→Pro→Fleet billing instead of admin-comped access.
+1. ~~Stats page~~ — done.
+2. ~~Stripe checkout~~ — done (test mode; T.J. does the live-key cutover in Vercel). Remaining billing polish is minor: 14-day trial, annual Fleet, truck-removal quantity sync.
 3. **Push notification delivery (Expo)** — the biggest lever left; every notification-generating feature built so far (blasts, offers, contest/milestone winners) stops at writing a `notifications` row today. Needed before or alongside the customer app, not after.
 4. **The native customer app itself.**
 

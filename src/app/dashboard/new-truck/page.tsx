@@ -13,10 +13,11 @@ export default function NewTruck() {
   const [name, setName] = useState('');
   const [cuisine, setCuisine] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [showFleetUpsell, setShowFleetUpsell] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function submit() {
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setShowFleetUpsell(false);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push('/login'); return; }
 
@@ -37,7 +38,7 @@ export default function NewTruck() {
       const { count } = await supabase
         .from('trucks').select('*', { count: 'exact', head: true }).eq('account_id', account.id);
       if ((count ?? 0) >= 1) {
-        setError('Your plan includes one truck. Upgrade to Fleet to add more.');
+        setShowFleetUpsell(true);
         setBusy(false); return;
       }
     }
@@ -47,6 +48,11 @@ export default function NewTruck() {
       .insert({ account_id: account.id, name, cuisine, slug: slugify(name) || `truck-${Date.now()}` })
       .select().single();
     if (tErr) { setError(tErr.message); setBusy(false); return; }
+
+    // Fleet is billed per truck — keep the subscription quantity in sync.
+    if (account.plan === 'fleet') {
+      await fetch('/api/stripe/sync-quantity', { method: 'POST' });
+    }
 
     router.push(`/dashboard/trucks/${truck.id}`);
     router.refresh();
@@ -63,6 +69,18 @@ export default function NewTruck() {
           placeholder="Cuisine (e.g. Tacos, BBQ)" value={cuisine} onChange={(e) => setCuisine(e.target.value)} />
         {name && <p className="text-sm text-muted">Public page: xleats.com/{slugify(name)}</p>}
         {error && <p className="text-sm text-brand">{error}</p>}
+        {showFleetUpsell && (
+          <div className="rounded-ticket border border-brand bg-cream p-4 text-sm">
+            <p className="font-semibold text-ink">Ready to run more than one truck?</p>
+            <p className="mt-1 text-muted">
+              Your plan includes one truck. Fleet lets you add as many as you like — billed $15/truck/mo,
+              with cross-truck Stats and bulk tools.
+            </p>
+            <Link href="/dashboard/billing" className="mt-3 inline-block rounded-lg bg-brand px-4 py-2 font-display font-bold text-white">
+              Upgrade to Fleet
+            </Link>
+          </div>
+        )}
         <button onClick={submit} disabled={busy || !name}
           className="w-full rounded-lg bg-brand px-4 py-2.5 font-display font-bold text-white disabled:opacity-60">
           {busy ? 'Creating…' : 'Create truck'}

@@ -22,6 +22,9 @@ export default async function AccountSettings() {
           account={account ?? null}
         />
       </div>
+      <div className="mt-6 border-t border-edge pt-6">
+        <Link href="/dashboard/billing" className="font-semibold text-brand">Billing &amp; plan →</Link>
+      </div>
     </div>
   );
 }
