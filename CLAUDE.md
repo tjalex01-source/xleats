@@ -354,14 +354,13 @@ For **prediction / first_n / raffle** contests (the ones with real `contest_entr
 6. **Push fan-out to followers** (new post / go-live / offer-delivered / promo blast → Expo push). `devices`/`notifications` tables exist and are now actively written to (promo blasts, offer deliveries) but nothing sends an actual phone push yet — this is the single biggest lever left: every "notify customers" feature built so far (blasts, offers, milestone/contest winner posts) is real up to the `notifications` table and stops there.
 7. **Upsell teaser engine + customer discovery filters** (quantified value-gap nudges; customer-app one-tap filters that only surface Pro+ vendors).
 8. **Expanded employee permissions** (granular `truck_members` toggles beyond `can_go_live`).
-9. **Engagement analytics layer** (profile views, follower growth, go-live frequency, redemptions, best spot by reach).
+9. **Profile/page-view tracking** — nothing counts a `/[slug]` visit today; the Stats page (built) can't show views until this instrumentation exists. NOT possible at all without an ordering system: best-seller/revenue stats.
 10. **Social auto-share on go-live.**
 11. **Calendar sync** (schedule → Google Calendar).
-12. **Schedule map-pin picker** (currently address/lat/lng entry, no visual picker).
+12. **Schedule map-pin picker** (currently structured address + geocode, no visual pin-drop picker).
 13. **Stripe checkout** (free → pro → fleet → enterprise), 14-day Pro trial, and wiring the admin comp tool's parity with real billing once Stripe lands.
 14. **Enterprise tier** — add to `account_plan` enum + per-truck/negotiated billing model once pricing shape locks.
 15. **The native customer app itself** — signup, follow, birthday capture, push tokens. Everything above in "Promos page — built" is real but inert until this ships; T.J.'s stated next major phase after the vendor web app is done.
-16. **A dedicated Stats page/tile** — agreed design direction, not yet built: sits alongside Menu/Schedule/Posts/Promos/Settings on the truck hub, Pro/Fleet gated, Fleet gets cross-truck comparisons. Buildable now from real data: follower count over time, go-live frequency, redemption counts per code/offer/contest, post frequency, special-tap counts. NOT buildable without new instrumentation: profile/page views (nothing counts a `/[slug]` visit today). NOT possible at all without an ordering system: best-seller/revenue stats.
 
 ---
 
@@ -389,6 +388,20 @@ T.J. flagged that a single free-typed address field is unreliable for Google Map
 - `.env.example` documents `GOOGLE_GEOCODING_API_KEY`; production requires T.J. to add the same key to Vercel's env vars himself (no Vercel access from here).
 
 Verified live with the real Google API key: geocoded a real Tyler, TX address through the actual Schedule page UI, confirmed accurate lat/lng landed in the database, confirmed the composed address and times rendered correctly on the public page's week view. Test data deleted afterward.
+
+---
+
+## Stats page — built
+
+`/dashboard/trucks/[truckId]/stats`, sixth hub tile alongside Menu/Schedule/Posts/Promos/Settings. Pro/Fleet gated (free tier gets an upgrade wall, same pattern as Promos).
+
+- **Two SECURITY DEFINER functions** (`supabase/stats.sql`), both gated on `owns_or_manages_truck()` so the follows-privacy boundary is never crossed — a truck gets aggregate counts, never a customer row (same pattern as `truck_follower_count`/`offer_stats`; returning zero rows for a non-manager is the intentional no-leak behavior):
+  - `truck_stats(p_truck)` → headline totals: followers, new-followers-30d, go-lives-30d, posts-30d, all-time discount redemptions, offers delivered/redeemed, special-taps-30d, active-codes/offers/open-contests.
+  - `truck_activity_by_week(p_truck, p_weeks)` → weekly time series (new followers / go-lives / posts per week) for the last N weeks.
+- **UI**: headline stat cards + three CSS mini bar charts (no chart library — plain divs with height %, matching the "no new npm dependency" convention). Fleet accounts additionally get a cross-truck comparison table (calls `truck_stats` per truck in the account).
+- **Data source notes**: go-lives count `live_sessions` rows with `started_at` set (not `status='live'`, since the expire cron flips finished sessions back to `off` — counting current status would undercount). Everything is real, live-computable data. Deliberately NOT included: profile/page views (nothing counts a `/[slug]` visit — see TODO) and any revenue/best-seller stat (no ordering system, by design).
+
+Verified live with a disposable Fleet account seeded with follows/go-lives/posts/redemptions spread across several weeks: every headline number and weekly bar matched the seed exactly, and the Fleet comparison table rendered both trucks. Test data deleted afterward.
 
 ---
 

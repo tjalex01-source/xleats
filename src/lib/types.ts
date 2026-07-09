@@ -187,3 +187,24 @@ export type LiveSession = {
   confirmed_address: string | null;
   catering_note: string | null;
 };
+
+export type TruckStats = {
+  followers: number;
+  new_followers_30d: number;
+  go_lives_30d: number;
+  posts_30d: number;
+  discount_redemptions: number;
+  offers_delivered: number;
+  offers_redeemed: number;
+  special_taps_30d: number;
+  active_discount_codes: number;
+  active_offers: number;
+  open_contests: number;
+};
+
+export type WeekActivity = {
+  week_start: string;
+  new_followers: number;
+  go_lives: number;
+  posts: number;
+};

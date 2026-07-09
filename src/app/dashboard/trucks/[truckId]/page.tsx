@@ -24,6 +24,7 @@ export default async function TruckHub({ params }: { params: Promise<{ truckId: 
     { href: 'schedule', label: 'Schedule', hint: 'Where you’ll be' },
     { href: 'posts',    label: 'Posts',    hint: 'Updates for followers' },
     { href: 'promos',   label: 'Promos',   hint: 'Discounts, contests, birthdays' },
+    { href: 'stats',    label: 'Stats',    hint: 'Followers, go-lives, redemptions' },
     { href: 'settings', label: 'Settings', hint: 'Profile, logo, public URL' },
   ];
 
