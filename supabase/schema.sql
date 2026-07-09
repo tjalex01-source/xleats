@@ -43,6 +43,8 @@ create table profiles (
   allow_offers_from_followed boolean not null default true,   -- offers/blasts from trucks they follow
   allow_offers_from_nearby   boolean not null default false,   -- offers/blasts from nearby trucks they don't follow
   onboarded_at timestamptz,                                    -- customer app: set once birthday/zip/consents captured
+  favorite_cuisines text[] not null default '{}',              -- customer app: for discovery/recommendations
+  agreed_terms_at timestamptz,                                 -- customer app: Terms + Privacy accepted at signup
   created_at   timestamptz not null default now()
 );
 -- profiles is PII-sensitive: on top of own-row RLS, restrict UPDATE to safe
@@ -51,7 +53,8 @@ create table profiles (
 revoke update on profiles from authenticated;
 grant update (
   display_name, avatar_url, birth_month, birth_day, zip,
-  home_lat, home_lng, allow_offers_from_followed, allow_offers_from_nearby, onboarded_at
+  home_lat, home_lng, allow_offers_from_followed, allow_offers_from_nearby,
+  onboarded_at, favorite_cuisines, agreed_terms_at
 ) on profiles to authenticated;
 
 -- Auto-create a profile row whenever a new auth user signs up.
