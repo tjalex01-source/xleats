@@ -379,6 +379,19 @@ A special is a **cross-cutting flag/schedule on an existing menu item** — not 
 
 ---
 
+## Schedule: structured addresses + real geocoding — built
+
+T.J. flagged that a single free-typed address field is unreliable for Google Maps to pinpoint, and that the "one-time exceptions" section (which already covers "a future one-off location and date" — no separate feature was needed there) was missing start/end time fields the weekly form has.
+
+- **Street / City / State / Zip are now real columns** on `schedules` and `saved_locations` (not just composed into the existing `address` text column and discarded) — added via `supabase/schedule_address_fields.sql`. `address` is still kept as the always-present composed display string every existing render path already uses (public page, schedule list), so nothing broke; the structured fields exist purely so re-editing an entry is accurate instead of trying to re-split a free-text string.
+- **Real geocoding**: `GOOGLE_GEOCODING_API_KEY` (Google Cloud → Geocoding API, restricted to that API only) is a server-only secret, proxied via a new authenticated route `POST /api/geocode` (rejects unauthenticated calls, so it can't be spammed to run up the bill) — the Schedule page composes the four fields into one address string client-side and calls this route on save, storing the real `lat`/`lng` it returns. Both the weekly recurring form and the one-time exceptions form do this now; exceptions also gained the missing start/end time fields.
+- **This was a bigger fix than it looks**: `lat`/`lng` on `schedules` had *never* been populated by anything before this — not even when a vendor picked a saved location, since `saved_locations.lat`/`lng` was also never written to despite existing in the schema since early in the project. That means the "nearby customer" radius matching inside `generate_scheduled_offers()` and `_deliver_promo_blast()` — which both anchor a truck's location by reading `schedules.lat`/`lng` — has been silently matching **zero** nearby non-followers this entire time, no matter how the consent/radius settings were configured, because the truck-location half of the join was always null. Real geocoded coordinates flowing into `schedules` is what actually makes that matching functional for the first time, not just a "Get directions" cosmetic improvement.
+- `.env.example` documents `GOOGLE_GEOCODING_API_KEY`; production requires T.J. to add the same key to Vercel's env vars himself (no Vercel access from here).
+
+Verified live with the real Google API key: geocoded a real Tyler, TX address through the actual Schedule page UI, confirmed accurate lat/lng landed in the database, confirmed the composed address and times rendered correctly on the public page's week view. Test data deleted afterward.
+
+---
+
 ## Truck Settings page redesign — built
 
 T.J. noticed the account-level settings (`/dashboard/settings` — name, login/profile) and the truck-level settings (`/dashboard/trucks/[truckId]/settings` — `TruckSettingsForm`) are two different pages and wanted the truck-level one expanded. All of the below shipped in one pass (migration: `supabase/truck_settings_expansion.sql`):

@@ -17,6 +17,10 @@ type ScheduleRow = {
   end_time: string | null;
   location_name: string | null;
   address: string | null;
+  street: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
   lat: number | null;
   lng: number | null;
   is_closed: boolean;
@@ -27,6 +31,26 @@ function entryLabel(e: ScheduleRow) {
   if (e.is_closed) return { text: 'Closed', className: 'font-semibold text-red-600' };
   if (e.is_catering) return { text: 'Catering', className: 'font-semibold text-purple-600' };
   return null;
+}
+
+function composeAddress(street: string, city: string, state: string, zip: string) {
+  const cityStateZip = [city, [state, zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  return [street, cityStateZip].filter(Boolean).join(', ');
+}
+
+async function geocode(address: string): Promise<{ lat: number | null; lng: number | null }> {
+  if (!address.trim()) return { lat: null, lng: null };
+  try {
+    const res = await fetch('/api/geocode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address }),
+    });
+    const data = await res.json();
+    return { lat: data.lat ?? null, lng: data.lng ?? null };
+  } catch {
+    return { lat: null, lng: null };
+  }
 }
 
 export default function Schedule() {
@@ -41,17 +65,29 @@ export default function Schedule() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [useSavedId, setUseSavedId] = useState('');
   const [locName, setLocName] = useState('');
-  const [locAddress, setLocAddress] = useState('');
+  const [street, setStreet] = useState('');
+  const [city, setCity] = useState('');
+  const [stateVal, setStateVal] = useState('');
+  const [zip, setZip] = useState('');
   const [start, setStart] = useState('11:00');
   const [end, setEnd] = useState('14:00');
   const [saveFavorite, setSaveFavorite] = useState(false);
+  const [geoNote, setGeoNote] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   // exceptions form
   const [exDate, setExDate] = useState('');
   const [exLoc, setExLoc] = useState('');
-  const [exAddress, setExAddress] = useState('');
+  const [exStreet, setExStreet] = useState('');
+  const [exCity, setExCity] = useState('');
+  const [exState, setExState] = useState('');
+  const [exZip, setExZip] = useState('');
+  const [exStart, setExStart] = useState('11:00');
+  const [exEnd, setExEnd] = useState('14:00');
   const [exClosed, setExClosed] = useState(false);
   const [exCatering, setExCatering] = useState(false);
+  const [exGeoNote, setExGeoNote] = useState<string | null>(null);
+  const [exSaving, setExSaving] = useState(false);
 
   async function load() {
     const [{ data: rows }, { data: locs }] = await Promise.all([
@@ -61,7 +97,7 @@ export default function Schedule() {
     const all = (rows ?? []) as ScheduleRow[];
     setRecurring(all.filter((r) => r.recurring).sort((a, b) => (a.start_time ?? '99').localeCompare(b.start_time ?? '99')));
     setOneOffs(all.filter((r) => !r.recurring).sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '')));
-    setSavedLocations(locs ?? []);
+    setSavedLocations((locs as SavedLocation[]) ?? []);
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [truckId]);
 
@@ -69,7 +105,8 @@ export default function Schedule() {
 
   function resetSpotForm() {
     setOpenDay(null); setEditingId(null); setUseSavedId('');
-    setLocName(''); setLocAddress(''); setStart('11:00'); setEnd('14:00'); setSaveFavorite(false);
+    setLocName(''); setStreet(''); setCity(''); setStateVal(''); setZip('');
+    setStart('11:00'); setEnd('14:00'); setSaveFavorite(false); setGeoNote(null);
   }
 
   function openAddSpot(day: number) {
@@ -82,26 +119,42 @@ export default function Schedule() {
     setEditingId(e.id);
     setUseSavedId('');
     setLocName(e.location_name ?? '');
-    setLocAddress(e.address ?? '');
+    setStreet(e.street ?? ''); setCity(e.city ?? ''); setStateVal(e.state ?? ''); setZip(e.zip ?? '');
     setStart(e.start_time?.slice(0, 5) ?? '11:00');
     setEnd(e.end_time?.slice(0, 5) ?? '14:00');
     setSaveFavorite(false);
+    setGeoNote(null);
   }
 
   function pickSaved(id: string) {
     setUseSavedId(id);
     const loc = savedLocations.find((l) => l.id === id);
-    if (loc) { setLocName(loc.name); setLocAddress(loc.address ?? ''); }
+    if (loc) {
+      setLocName(loc.name);
+      setStreet(loc.street ?? ''); setCity(loc.city ?? ''); setStateVal(loc.state ?? ''); setZip(loc.zip ?? '');
+    }
   }
 
   async function saveSpot(day: number) {
     if (!locName) return;
+    setSaving(true); setGeoNote(null);
     const saved = savedLocations.find((l) => l.id === useSavedId);
+    const composed = saved?.address || composeAddress(street, city, stateVal, zip);
+    let lat = saved?.lat ?? null;
+    let lng = saved?.lng ?? null;
+    if (!saved && composed) {
+      const geo = await geocode(composed);
+      lat = geo.lat; lng = geo.lng;
+      setGeoNote(lat != null ? '📍 Location pinpointed' : '⚠️ Couldn’t pinpoint that address — saved anyway, directions may be less exact');
+    }
     const payload = {
       location_name: locName,
-      address: locAddress || null,
-      lat: saved?.lat ?? null,
-      lng: saved?.lng ?? null,
+      address: composed || null,
+      street: saved ? (saved.street ?? null) : (street || null),
+      city: saved ? (saved.city ?? null) : (city || null),
+      state: saved ? (saved.state ?? null) : (stateVal || null),
+      zip: saved ? (saved.zip ?? null) : (zip || null),
+      lat, lng,
       start_time: start, end_time: end,
       is_closed: false, is_catering: false,
     };
@@ -111,8 +164,13 @@ export default function Schedule() {
       await supabase.from('schedules').insert({ truck_id: truckId, recurring: true, day_of_week: day, ...payload });
     }
     if (saveFavorite && locName) {
-      await supabase.from('saved_locations').insert({ truck_id: truckId, name: locName, address: locAddress || null });
+      await supabase.from('saved_locations').insert({
+        truck_id: truckId, name: locName, address: composed || null,
+        street: street || null, city: city || null, state: stateVal || null, zip: zip || null,
+        lat, lng,
+      });
     }
+    setSaving(false);
     resetSpotForm();
     load();
   }
@@ -131,15 +189,37 @@ export default function Schedule() {
     load();
   }
 
+  function resetExceptionForm() {
+    setExDate(''); setExLoc(''); setExStreet(''); setExCity(''); setExState(''); setExZip('');
+    setExStart('11:00'); setExEnd('14:00'); setExClosed(false); setExCatering(false); setExGeoNote(null);
+  }
+
   async function addException() {
     if (!exDate || (!exClosed && !exCatering && !exLoc)) return;
+    setExSaving(true); setExGeoNote(null);
+    const composed = composeAddress(exStreet, exCity, exState, exZip);
+    let lat: number | null = null;
+    let lng: number | null = null;
+    if (!exClosed && !exCatering && composed) {
+      const geo = await geocode(composed);
+      lat = geo.lat; lng = geo.lng;
+      setExGeoNote(lat != null ? '📍 Location pinpointed' : '⚠️ Couldn’t pinpoint that address — saved anyway, directions may be less exact');
+    }
     await supabase.from('schedules').insert({
       truck_id: truckId, recurring: false, date: exDate,
       location_name: exClosed || exCatering ? null : exLoc,
-      address: exClosed || exCatering ? null : exAddress || null,
+      address: exClosed || exCatering ? null : (composed || null),
+      street: exClosed || exCatering ? null : (exStreet || null),
+      city: exClosed || exCatering ? null : (exCity || null),
+      state: exClosed || exCatering ? null : (exState || null),
+      zip: exClosed || exCatering ? null : (exZip || null),
+      lat, lng,
+      start_time: exClosed || exCatering ? null : exStart,
+      end_time: exClosed || exCatering ? null : exEnd,
       is_closed: exClosed, is_catering: exCatering,
     });
-    setExDate(''); setExLoc(''); setExAddress(''); setExClosed(false); setExCatering(false);
+    setExSaving(false);
+    resetExceptionForm();
     load();
   }
   async function removeException(id: string) {
@@ -213,8 +293,12 @@ export default function Schedule() {
                     </select>
                   )}
                   <input className={inputCls} placeholder="Location name" value={locName} onChange={(e) => setLocName(e.target.value)} />
-                  <input className={inputCls} placeholder="Address (so Google Maps can pinpoint it)"
-                    value={locAddress} onChange={(e) => setLocAddress(e.target.value)} />
+                  <input className={inputCls} placeholder="Street address" value={street} onChange={(e) => setStreet(e.target.value)} />
+                  <div className="flex gap-2">
+                    <input className={`${inputCls} flex-1`} placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} />
+                    <input className={`${inputCls} w-16`} placeholder="State" value={stateVal} onChange={(e) => setStateVal(e.target.value)} />
+                    <input className={`${inputCls} w-24`} placeholder="Zip" value={zip} onChange={(e) => setZip(e.target.value)} />
+                  </div>
                   <div className="flex gap-2">
                     <input type="time" value={start} onChange={(e) => setStart(e.target.value)} className={inputCls} />
                     <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} className={inputCls} />
@@ -223,10 +307,11 @@ export default function Schedule() {
                     <input type="checkbox" checked={saveFavorite} onChange={(e) => setSaveFavorite(e.target.checked)} className="accent-brand" />
                     Save this as a favorite location for next time
                   </label>
+                  {geoNote && <p className="text-xs text-muted">{geoNote}</p>}
                   <div className="flex gap-3">
-                    <button onClick={() => saveSpot(d)} disabled={!locName}
+                    <button onClick={() => saveSpot(d)} disabled={!locName || saving}
                       className="rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60">
-                      Save
+                      {saving ? 'Saving…' : 'Save'}
                     </button>
                     <button onClick={resetSpotForm} className="text-sm text-muted">Cancel</button>
                   </div>
@@ -274,8 +359,22 @@ export default function Schedule() {
             <input type="date" value={exDate} onChange={(e) => setExDate(e.target.value)} className={inputCls} />
             <input className={inputCls} placeholder="Location name" value={exLoc} onChange={(e) => setExLoc(e.target.value)}
               disabled={exClosed || exCatering} />
-            <input className={inputCls} placeholder="Address" value={exAddress} onChange={(e) => setExAddress(e.target.value)}
+            <input className={inputCls} placeholder="Street address" value={exStreet} onChange={(e) => setExStreet(e.target.value)}
               disabled={exClosed || exCatering} />
+            <div className="flex gap-2">
+              <input className={`${inputCls} flex-1`} placeholder="City" value={exCity} onChange={(e) => setExCity(e.target.value)}
+                disabled={exClosed || exCatering} />
+              <input className={`${inputCls} w-16`} placeholder="State" value={exState} onChange={(e) => setExState(e.target.value)}
+                disabled={exClosed || exCatering} />
+              <input className={`${inputCls} w-24`} placeholder="Zip" value={exZip} onChange={(e) => setExZip(e.target.value)}
+                disabled={exClosed || exCatering} />
+            </div>
+            <div className="flex gap-2">
+              <input type="time" value={exStart} onChange={(e) => setExStart(e.target.value)} className={inputCls}
+                disabled={exClosed || exCatering} />
+              <input type="time" value={exEnd} onChange={(e) => setExEnd(e.target.value)} className={inputCls}
+                disabled={exClosed || exCatering} />
+            </div>
             <div className="flex gap-4 text-sm">
               <label className="flex items-center gap-1.5">
                 <input type="checkbox" checked={exClosed} onChange={(e) => { setExClosed(e.target.checked); if (e.target.checked) setExCatering(false); }} className="accent-brand" />
@@ -286,13 +385,14 @@ export default function Schedule() {
                 Private catering that day
               </label>
             </div>
+            {exGeoNote && <p className="text-xs text-muted">{exGeoNote}</p>}
           </div>
           <button
             onClick={addException}
-            disabled={!exDate || (!exClosed && !exCatering && !exLoc)}
+            disabled={!exDate || (!exClosed && !exCatering && !exLoc) || exSaving}
             className="mt-3 rounded-lg bg-brand px-4 py-2 font-display font-bold text-white disabled:opacity-60"
           >
-            Add exception
+            {exSaving ? 'Saving…' : 'Add exception'}
           </button>
         </div>
         <div className="mt-3 space-y-2">
@@ -305,7 +405,12 @@ export default function Schedule() {
                   {label ? (
                     <span className={`ml-2 ${label.className}`}>{label.text}</span>
                   ) : (
-                    <span className="ml-2">{o.location_name}{o.address ? ` — ${o.address}` : ''}</span>
+                    <>
+                      <span className="ml-2">{o.location_name}{o.address ? ` — ${o.address}` : ''}</span>
+                      {(o.start_time || o.end_time) && (
+                        <div className="text-xs text-muted">{formatTime12(o.start_time)}–{formatTime12(o.end_time)}</div>
+                      )}
+                    </>
                   )}
                 </div>
                 <button onClick={() => removeException(o.id)} className="text-sm font-semibold text-brand">Delete</button>

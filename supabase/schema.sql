@@ -205,8 +205,12 @@ create table schedules (
   start_time    time,
   end_time      time,
   location_name text,
-  address       text,
-  lat           double precision,
+  address       text,                                        -- always-present composed display string
+  street        text,
+  city          text,
+  state         text,
+  zip           text,
+  lat           double precision,                            -- real geocoded coords (Google Geocoding API)
   lng           double precision,
   is_closed     boolean not null default false,             -- explicit "not operating" for this slot
   is_catering   boolean not null default false,             -- private event — public view shows "Closed"
@@ -221,6 +225,10 @@ create table saved_locations (
   truck_id   uuid not null references trucks(id) on delete cascade,
   name       text not null,
   address    text,
+  street     text,
+  city       text,
+  state      text,
+  zip        text,
   lat        double precision,
   lng        double precision,
   created_at timestamptz not null default now()
