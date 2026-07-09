@@ -155,6 +155,34 @@ create table menu_photos (
 );
 create index menu_photos_truck_idx on menu_photos(truck_id);
 
+-- A special is a cross-cutting flag/schedule on an EXISTING menu item, not a
+-- category and not a new item — a Tuesday taco special stays correctly
+-- categorized under "Entrees" while also being flagged as featured today.
+create table specials (
+  id                  uuid primary key default gen_random_uuid(),
+  truck_id            uuid not null references trucks(id) on delete cascade,
+  menu_item_id        uuid not null references menu_items(id) on delete cascade,
+  special_price       numeric(8,2) not null,
+  advertise_discount  boolean not null default true,   -- show "% off" / "$ off" vs the regular price
+  recurring           boolean not null default false,
+  days_of_week        int[] not null default '{}',      -- 0=Sun..6=Sat, used when recurring
+  special_date        date,                              -- used when not recurring
+  active              boolean not null default true,
+  created_at          timestamptz not null default now()
+);
+create index specials_truck_idx on specials(truck_id);
+
+-- Manual, honor-system tap counter for "today's special sold" — mirrors the
+-- milestone contest tap pattern, purely vendor-side tracking, feeds a future
+-- Stats page. One row per (special, day).
+create table special_taps (
+  id          uuid primary key default gen_random_uuid(),
+  special_id  uuid not null references specials(id) on delete cascade,
+  tap_date    date not null default current_date,
+  count       int not null default 0,
+  unique (special_id, tap_date)
+);
+
 -- truck_photos: customer photos, rendered as a carousel on the public page
 create table truck_photos (
   id         uuid primary key default gen_random_uuid(),
@@ -666,6 +694,24 @@ begin
 end;
 $$;
 
+-- Manual "today's special sold" tap counter — pure vendor-side tracking, no
+-- resolution logic, one row per (special, day). Feeds a future Stats page.
+create or replace function bump_special_tap_count(p_special uuid)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare v_truck uuid; v_count int;
+begin
+  select truck_id into v_truck from specials where id = p_special;
+  if v_truck is null or not owns_or_manages_truck(v_truck) then
+    raise exception 'not found';
+  end if;
+  insert into special_taps (special_id, tap_date, count) values (p_special, current_date, 1)
+  on conflict (special_id, tap_date) do update set count = special_taps.count + 1
+  returning special_taps.count into v_count;
+  return v_count;
+end;
+$$;
+
 -- Worker verifies a prediction/first_n/raffle winner's claim code at the window.
 create or replace function redeem_contest_code(p_code text, p_truck uuid)
 returns boolean language plpgsql security definer set search_path = public as $$
@@ -827,6 +873,8 @@ alter table truck_members        enable row level security;
 alter table menu_items           enable row level security;
 alter table menu_item_trucks     enable row level security;
 alter table menu_photos          enable row level security;
+alter table specials             enable row level security;
+alter table special_taps         enable row level security;
 alter table truck_photos         enable row level security;
 alter table schedules            enable row level security;
 alter table saved_locations       enable row level security;
@@ -879,6 +927,14 @@ create policy menu_item_trucks_write on menu_item_trucks for all
 create policy menu_photos_read  on menu_photos for select using (true);
 create policy menu_photos_write on menu_photos for all
   using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
+
+create policy specials_read  on specials for select using (active);
+create policy specials_write on specials for all
+  using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));
+create policy special_taps_manage on special_taps for all
+  using (exists (select 1 from specials s where s.id = special_id and owns_or_manages_truck(s.truck_id)))
+  with check (exists (select 1 from specials s where s.id = special_id and owns_or_manages_truck(s.truck_id)));
+
 create policy truck_photos_read  on truck_photos for select using (true);
 create policy truck_photos_write on truck_photos for all
   using (owns_or_manages_truck(truck_id)) with check (owns_or_manages_truck(truck_id));

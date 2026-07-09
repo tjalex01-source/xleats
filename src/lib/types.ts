@@ -74,6 +74,24 @@ export type SavedLocation = {
   lng: number | null;
 };
 
+export type Special = {
+  id: string;
+  truck_id: string;
+  menu_item_id: string;
+  special_price: number;
+  advertise_discount: boolean;
+  recurring: boolean;
+  days_of_week: number[];
+  special_date: string | null;
+  active: boolean;
+};
+
+export type SpecialTap = {
+  special_id: string;
+  tap_date: string;
+  count: number;
+};
+
 export type DiscountCode = {
   id: string;
   truck_id: string;

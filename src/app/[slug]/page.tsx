@@ -184,7 +184,7 @@ export default async function PublicTruckPage({
   // accounts has no public-read RLS policy, so the suspension check needs the
   // service-role client — this never reaches the browser, it only decides
   // whether the rest of the page renders.
-  const [{ data: accountRow }, { data: session }, { data: allMenuItems }, { data: schedules }, { data: posts }, { data: menuPhotos }, { data: truckPhotos }, { data: closedContests }, { data: allDiscountCodes }] =
+  const [{ data: accountRow }, { data: session }, { data: allMenuItems }, { data: schedules }, { data: posts }, { data: menuPhotos }, { data: truckPhotos }, { data: closedContests }, { data: allDiscountCodes }, { data: allSpecials }] =
     await Promise.all([
       createAdminClient()
         .from('accounts')
@@ -236,6 +236,11 @@ export default async function PublicTruckPage({
         .select('*, promo_blasts(sent_at)')
         .eq('truck_id', truck.id)
         .eq('active', true),
+      supabase
+        .from('specials')
+        .select('*')
+        .eq('truck_id', truck.id)
+        .eq('active', true),
     ]);
 
   if (accountRow?.suspended) notFound();
@@ -243,12 +248,22 @@ export default async function PublicTruckPage({
 
   // Specials & Promos — only actually-blasted codes, within their active window.
   const nowMs = Date.now();
-  const activeSpecials = (allDiscountCodes ?? []).filter((d) => {
+  const activePromoCodes = (allDiscountCodes ?? []).filter((d) => {
     if (!d.promo_blasts?.sent_at) return false;
     if (d.starts_at && new Date(d.starts_at).getTime() > nowMs) return false;
     if (d.expires_at && new Date(d.expires_at).getTime() < nowMs) return false;
     return true;
   });
+
+  // Today's menu Specials — a special is a schedule/flag on an existing menu
+  // item (one-time date, or recurring day-of-week), not a separate item.
+  const todayIso = today;
+  const todayDow = new Date().getDay();
+  const menuItemById = new Map((allMenuItems ?? []).map((i) => [i.id, i]));
+  const todaysMenuSpecials = (allSpecials ?? [])
+    .filter((s) => (s.recurring ? (s.days_of_week ?? []).includes(todayDow) : s.special_date === todayIso))
+    .map((s) => ({ special: s, item: menuItemById.get(s.menu_item_id) }))
+    .filter((x) => !!x.item);
 
   // Contest winner announcements — first name ONLY, via a SECURITY DEFINER
   // function. manual/milestone contests already store a freeform winner_note
@@ -397,12 +412,47 @@ export default async function PublicTruckPage({
         />
       </div>
 
+      {/* Today's Specials */}
+      {todaysMenuSpecials.length > 0 && (
+        <section className="mb-6">
+          <h2 className="eyebrow mb-3">Today&rsquo;s Specials</h2>
+          <div className="space-y-2">
+            {todaysMenuSpecials.map(({ special, item }) => {
+              const regular = item!.price != null ? Number(item!.price) : null;
+              const savings = special.advertise_discount && regular != null && regular > 0
+                ? Math.round((1 - Number(special.special_price) / regular) * 100)
+                : null;
+              return (
+                <div key={special.id} className="flex items-center gap-3 rounded-ticket border border-amber-200 bg-amber-50 p-3">
+                  {item!.photo_url ? (
+                    <Image src={item!.photo_url} alt={item!.name} width={64} height={64}
+                      className="h-16 w-16 shrink-0 rounded-lg object-cover" />
+                  ) : (
+                    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-amber-300 bg-white text-2xl">🍽️</div>
+                  )}
+                  <div className="flex-1">
+                    <div className="flex items-baseline justify-between">
+                      <span className="font-display font-bold text-amber-800">{item!.name}</span>
+                      <span className="font-display font-bold text-amber-800">
+                        ${Number(special.special_price).toFixed(2)}
+                        {savings != null && savings > 0 && <span className="ml-1 text-xs font-semibold">({savings}% off)</span>}
+                      </span>
+                    </div>
+                    {item!.description && <p className="text-sm text-amber-700">{item!.description}</p>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {/* Specials & Promos */}
-      {activeSpecials.length > 0 && (
+      {activePromoCodes.length > 0 && (
         <section className="mb-6">
           <h2 className="eyebrow mb-3">Specials & Promos</h2>
           <div className="space-y-2">
-            {activeSpecials.map((d) => (
+            {activePromoCodes.map((d) => (
               <div key={d.id} className="rounded-ticket border border-amber-200 bg-amber-50 p-3">
                 <div className="flex items-baseline justify-between">
                   <span className="font-display font-bold text-amber-800">
@@ -529,9 +579,13 @@ export default async function PublicTruckPage({
               <div className="space-y-2">
                 {items.map((item) => (
                   <div key={item.id} className="rounded-ticket border border-edge bg-white p-3">
-                    {item.photo_url && (
+                    {item.photo_url ? (
                       <Image src={item.photo_url} alt="" width={560} height={280}
                         className="mb-2 w-full rounded-lg object-cover" style={{ maxHeight: 160 }} />
+                    ) : (
+                      <div className="mb-2 flex w-full items-center justify-center rounded-lg border border-dashed border-edge bg-cream text-3xl" style={{ height: 100 }}>
+                        🍽️
+                      </div>
                     )}
                     <div className="flex justify-between">
                       <div>
