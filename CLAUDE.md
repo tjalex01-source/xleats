@@ -436,12 +436,12 @@ Accounts needed later (customer app phase): Expo/EAS, Apple Developer ($99/yr), 
 
 ## Recommended next-task order
 
-1. **Truck settings redesign** (in progress — Fleet apply-to-all, logo/banner upload, contact fields + visibility toggle, customer-photo carousel).
-2. **Manual 86/sold-out toggle** surfaced on dashboard (cheap, schema already supports it).
-3. **Reviews hybrid carousel** (public marketing value + private vendor feedback loop).
-4. **Birthday engine** (biggest differentiator left unbuilt; needs customer-app-side capture first, or a web-based lightweight version).
-5. **Stripe checkout** (turns on real monetization instead of admin-comped access).
-6. **Push fan-out + upsell teaser engine** (pairs naturally with the customer app).
+All five dashboard sections (Promos, Menu, Schedule, Posts, Settings) are now built and reviewed. T.J.'s stated direction: payment links, then the customer-facing app.
+
+1. **Stats page** — cheap, already-designed, strengthens the Pro/Fleet pitch right before billing turns on.
+2. **Stripe checkout** — the literal next step T.J. named ("payment links"); turns on real free→Pro→Fleet billing instead of admin-comped access.
+3. **Push notification delivery (Expo)** — the biggest lever left; every notification-generating feature built so far (blasts, offers, contest/milestone winners) stops at writing a `notifications` row today. Needed before or alongside the customer app, not after.
+4. **The native customer app itself.**
 
 ---
 
