@@ -42,8 +42,17 @@ create table profiles (
   home_lng     double precision,
   allow_offers_from_followed boolean not null default true,   -- offers/blasts from trucks they follow
   allow_offers_from_nearby   boolean not null default false,   -- offers/blasts from nearby trucks they don't follow
+  onboarded_at timestamptz,                                    -- customer app: set once birthday/zip/consents captured
   created_at   timestamptz not null default now()
 );
+-- profiles is PII-sensitive: on top of own-row RLS, restrict UPDATE to safe
+-- columns so a customer can't escalate role or tamper. SECURITY DEFINER
+-- funcs (handle_new_user) bypass this and still set role at signup.
+revoke update on profiles from authenticated;
+grant update (
+  display_name, avatar_url, birth_month, birth_day, zip,
+  home_lat, home_lng, allow_offers_from_followed, allow_offers_from_nearby, onboarded_at
+) on profiles to authenticated;
 
 -- Auto-create a profile row whenever a new auth user signs up.
 create or replace function handle_new_user()
