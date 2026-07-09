@@ -351,7 +351,7 @@ For **prediction / first_n / raffle** contests (the ones with real `contest_entr
 3. **Dietary/allergy tags** on menu items.
 4. **"Limited today" count** on menu items.
 5. **Reviews — hybrid carousel** (4–5★ public, below-4★ private to vendor).
-6. **Push fan-out to followers** (new post / go-live / offer-delivered / promo blast → Expo push). `devices`/`notifications` tables exist and are now actively written to (promo blasts, offer deliveries) but nothing sends an actual phone push yet — this is the single biggest lever left: every "notify customers" feature built so far (blasts, offers, milestone/contest winner posts) is real up to the `notifications` table and stops there.
+6. **Push delivery pipeline — BUILT** (`/api/cron/push`, every minute): drains unsent `notifications` → Expo push API → stamps `pushed_at`. So every "notify customers" feature (blasts, offers, contest/milestone winners) now reaches a phone the moment a device is registered. Still TODO on the *trigger* side: go-live and new-post don't yet write `notifications` rows (only blasts/offers/winners do) — wire those when useful. And of course no real device receives anything until the customer app registers a token (see below).
 7. **Upsell teaser engine + customer discovery filters** (quantified value-gap nudges; customer-app one-tap filters that only surface Pro+ vendors).
 8. **Expanded employee permissions** (granular `truck_members` toggles beyond `can_go_live`).
 9. **Profile/page-view tracking** — nothing counts a `/[slug]` visit today; the Stats page (built) can't show views until this instrumentation exists. NOT possible at all without an ordering system: best-seller/revenue stats.

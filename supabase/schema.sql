@@ -422,9 +422,11 @@ create table notifications (
   title      text,
   body       text,
   created_at timestamptz not null default now(),
-  read_at    timestamptz
+  read_at    timestamptz,
+  pushed_at  timestamptz          -- stamped once the /api/cron/push drain delivers it via Expo
 );
 create index notifications_user_idx on notifications(user_id, created_at desc);
+create index notifications_unpushed_idx on notifications(created_at) where pushed_at is null;
 
 -- =============================================================================
 -- Permission helpers (SECURITY DEFINER to avoid recursive RLS checks)
