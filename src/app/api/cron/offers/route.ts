@@ -11,7 +11,11 @@ export async function GET(req: Request) {
   }
   const admin = createAdminClient();
   const { data, error } = await admin.rpc('generate_scheduled_offers');
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    // Log the real Postgres error server-side; never return it to the caller.
+    console.error('cron failed', error);
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+  }
   // TODO(phase1): read new 'birthday'/'holiday'/'custom' notifications and push via Expo.
   return NextResponse.json({ delivered: data });
 }

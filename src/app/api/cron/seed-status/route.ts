@@ -10,6 +10,10 @@ export async function GET(req: Request) {
   }
   const admin = createAdminClient();
   const { error } = await admin.rpc('seed_daily_status_from_schedule');
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    // Log the real Postgres error server-side; never return it to the caller.
+    console.error('cron failed', error);
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+  }
   return NextResponse.json({ ok: true });
 }

@@ -21,14 +21,16 @@ export default function NewTruck() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push('/login'); return; }
 
-    // Ensure an account exists.
+    // Ensure an account exists. Only id/plan are needed here — never select('*')
+    // on `accounts` from a client component, or Stripe ids and comp notes ship
+    // to the browser along with them.
     let { data: account } = await supabase
-      .from('accounts').select('*').eq('owner_id', user.id).maybeSingle();
+      .from('accounts').select('id, plan').eq('owner_id', user.id).maybeSingle();
     if (!account) {
       const { data, error } = await supabase
         .from('accounts')
         .insert({ owner_id: user.id, name: `${name || 'My'} account` })
-        .select().single();
+        .select('id, plan').single();
       if (error) { setError(error.message); setBusy(false); return; }
       account = data;
     }

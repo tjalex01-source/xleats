@@ -50,7 +50,12 @@ export async function POST(req: Request) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (error) {
+    // Log the real Postgres error server-side; the vendor gets a generic
+    // message, since these carry table/column names and sometimes row values.
+    console.error('live status upsert failed', error);
+    return NextResponse.json({ error: 'Could not update status' }, { status: 400 });
+  }
   // TODO(phase1): on transition to 'live', fan out push to followers via devices.
   return NextResponse.json(data);
 }
