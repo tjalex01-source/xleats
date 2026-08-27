@@ -5,4 +5,10 @@ node_modules
 *.log
 supabase/.temp
 *.tsbuildinfo
-.claude/
+# Ignore local Claude config (launch.json etc.) but DO track the security
+# hook -- a pre-push gate that only exists on one machine isn't a gate.
+# Note: this must exclude the directory's *contents*, not the directory --
+# git won't descend into an ignored dir, so `!` on a file inside it can't work.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/

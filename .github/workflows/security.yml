@@ -1,0 +1,40 @@
+name: Security
+
+# Runs on every push to any branch, and on every pull request.
+on:
+  push:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # HARD GATE: your tailored Supabase/Stripe/Vercel checks.
+      # If this fails, the job fails and GitHub emails you.
+      - name: Xandland security checks
+        run: node scripts/security-check.mjs
+
+      # HARD GATE: customer PII protection — RLS, identity-table exposure,
+      # personal data in logs, prompt handling.
+      - name: PII checks
+        run: node scripts/pii-check.mjs
+
+      # ADVISORY: flags known-vulnerable npm packages. Won't block the run,
+      # so a noisy transitive dependency can't stop your work.
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+      # ADVISORY: general SAST (SQL injection, XSS, etc.). Findings show up
+      # in the Actions log. Set to advisory to avoid false positives blocking you.
+      - name: Semgrep SAST
+        run: |
+          python3 -m pip install --quiet semgrep
+          semgrep --config auto --skip-unknown-extensions .
+        continue-on-error: true
